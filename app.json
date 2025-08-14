@@ -1,6 +1,12 @@
 {
   "expo": {
     "name": "freefire-tournament",
+    "scheme": "freefire-tournament",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "slug": "freefire-tournament",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -20,10 +26,14 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.mutahir1212.freefiretournament"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }
