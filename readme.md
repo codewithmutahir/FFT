@@ -1,1 +1,1 @@
-axha ab forgot password wala kaam b ho gaya ab agy chalte hain tournament listing me filhal basic do components banaye hain jo k tournamentlist and joinform join form jab tournament list p click kare ga tournament list ka component login karne k bad show hota hai jo agy karna hai humne app me in app updates add karne hain users k liye or tournament listing ko improve karna hai jaise k tournaments section me ho to jitne b tournaments admin ne add kiye hain wo show ho jayen or click karne p joinform next route ki jaga popup me show ho jisme user ki uid and 
+
