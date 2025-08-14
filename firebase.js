@@ -6,7 +6,7 @@ import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 
 // Your Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyCeWxzprK6LOVGxxFO_yi9e7BnENn5QVtY",
+  apiKey:  process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   authDomain: "fftournament-b002b.firebaseapp.com",
   projectId: "fftournament-b002b",
   storageBucket: "fftournament-b002b.firebasestorage.app",
