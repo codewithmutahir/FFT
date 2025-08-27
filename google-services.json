@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "135933024414",
+    "firebase_url": "https://fftournament-b002b-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "fftournament-b002b",
+    "storage_bucket": "fftournament-b002b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:135933024414:android:cb3789e8b7d7e3c9b2c38f",
+        "android_client_info": {
+          "package_name": "com.mutahir1212.freefiretournament"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "135933024414-e2166mmkopeqdf3cna5g1lq17vpb3hqt.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAUOz4KWqhW18PpJAF2_cLzXmVBUXoYQvs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "135933024414-4t4ujrf9nrr4vnmfjldtdjbam11udaur.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
