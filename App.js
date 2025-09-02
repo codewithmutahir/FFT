@@ -31,6 +31,7 @@ import Ionicons from "react-native-vector-icons/Ionicons.js";
 import * as Notifications from "expo-notifications";
 import { useFonts } from "expo-font";
 import useNetwork from "./src/components/useNetwork.js";
+import { typography } from "./theme/typography.js";
 
 const Stack = createNativeStackNavigator();
 
@@ -119,7 +120,7 @@ function CustomHeader({ navigation, user }) {
             }}
             style={styles.coinIcon}
           />
-          <Text style={styles.coinsText}>{coins} Coins</Text>
+          <Text style={[styles.coinsText, typography.cardText]}>{coins} Coins</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -375,7 +376,7 @@ const styles = StyleSheet.create({
   // ✅ NEW - Floating WhatsApp Button Styles
   whatsappFloat: {
     position: 'absolute',
-    bottom: 30,
+    bottom: 60,
     right: 20,
     width: 60,
     height: 60,

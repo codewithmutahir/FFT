@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { typography } from "../../theme/typography";
+import firestore from '@react-native-firebase/firestore';
 
 const { width } = Dimensions.get("window");
 
@@ -66,41 +67,75 @@ export default function MoreScreen({ navigation }) {
       return;
     }
 
+    if (rating === 0) {
+      Alert.alert("Error", "Please provide a rating before submitting.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const email = "mutharsoomro13@gmail.com"; // Yahan apna email address daalo
-      const subject = `App Feedback - ${feedbackType.charAt(0).toUpperCase() + feedbackType.slice(1)}`;
+      const feedbackData = {
+        type: feedbackType,
+        rating: rating,
+        message: feedback.trim(),
+        timestamp: firestore.FieldValue.serverTimestamp(),
+        status: "unread",
+        createdAt: new Date().toISOString(),
+      };
 
-      const body = encodeURIComponent(`
-        Feedback Type: ${feedbackType.charAt(0).toUpperCase() + feedbackType.slice(1)}
-        Rating: ${rating}/5 stars
-        Date: ${new Date().toLocaleDateString()}
+      // Save to Firestore first
+      const docRef = await firestore()
+        .collection('feedback')
+        .add(feedbackData);
 
-        Feedback:
-        ${feedback}
+      // Send email using FormSubmit (Free service)
+      const formData = new FormData();
+      formData.append('_next', 'https://your-website.com/thank-you'); // Optional redirect page
+      formData.append('_subject', `App Feedback - ${feedbackType.charAt(0).toUpperCase() + feedbackType.slice(1)}`);
+      formData.append('_captcha', 'false'); // Disable captcha
+      formData.append('_template', 'table'); // Use table template for better formatting
+      
+      // Feedback details
+      formData.append('Feedback_Type', feedbackType.charAt(0).toUpperCase() + feedbackType.slice(1));
+      formData.append('Rating', `${rating}/5 stars`);
+      formData.append('Message', feedback.trim());
+      formData.append('Date', new Date().toLocaleDateString());
+      formData.append('Time', new Date().toLocaleTimeString());
+      formData.append('Feedback_ID', docRef.id);
+      formData.append('App_Name', 'ProArena Gaming App');
 
-        ---
-        Sent from Gaming App
-            `);
+      // Send to FormSubmit
+      const emailResponse = await fetch('https://formsubmit.co/mutharsoomro13@gmail.com', {
+        method: 'POST',
+        body: formData,
+      });
 
-      const mailtoUrl = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${body}`;
-
-      await Linking.openURL(mailtoUrl);
-
-      // Success feedback
-      setTimeout(() => {
+      if (emailResponse.ok) {
         setIsSubmitting(false);
         closeFeedbackModal();
+        
         Alert.alert(
-          "Thank You!",
-          "Your feedback has been sent. We appreciate your input and will get back to you soon.",
+          "Thank You! 🎉",
+          "Your feedback has been sent successfully. We appreciate your input and will review it soon.",
           [{ text: "OK", style: "default" }]
         );
-      }, 1000);
+      } else {
+        throw new Error('Failed to send email');
+      }
+
     } catch (error) {
       setIsSubmitting(false);
-      Alert.alert("Error", "Unable to send feedback. Please try again later.");
+      console.error("Feedback submission error:", error);
+      
+      Alert.alert(
+        "Submission Failed",
+        "Unable to send feedback at the moment. Please check your internet connection and try again.",
+        [
+          { text: "Try Again", onPress: submitFeedback },
+          { text: "Cancel", style: "cancel" }
+        ]
+      );
     }
   };
 
@@ -261,8 +296,8 @@ export default function MoreScreen({ navigation }) {
     <>
       <ScrollView style={styles.container}>
         <View style={styles.header}>
-          <Text style={[styles.headerTitle, typography.headerTitle]}>More</Text>
-          <Text style={styles.headerSubtitle}>
+          <Text style={[styles.headerTitle, typography.h1]}>More</Text>
+          <Text style={[styles.headerSubtitle, typography.cardText]}>
             Additional options and information
           </Text>
         </View>
@@ -272,8 +307,8 @@ export default function MoreScreen({ navigation }) {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>App Version 1.0.0</Text>
-          <Text style={styles.footerText}>© 2024 Your Gaming App</Text>
+          <Text style={styles.footerText}>© 2025 ProArena</Text>
+          <Text style={styles.footerText}>Version 1.0.0</Text>
         </View>
       </ScrollView>
 
@@ -414,10 +449,12 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "bold",
     marginBottom: 5,
+    textAlign: "center",
   },
   headerSubtitle: {
     color: "#888",
     fontSize: 16,
+    textAlign: "center",
   },
   menuContainer: {
     padding: 20,

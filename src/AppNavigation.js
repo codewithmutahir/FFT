@@ -11,7 +11,8 @@ import ProfileScreen from "./screens/ProfileScreen";
 import HomeScreen from "./screens/HomeScreen";
 import UpdatesScreen from "./screens/UpdatesScreen";
 import WalletScreen from "./screens/WalletScreen";
-import MoreScreen from "./screens/MoreScreen"; // New screen
+import MoreScreen from "./screens/MoreScreen"; 
+import { typography } from "../theme/typography";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -92,6 +93,9 @@ export default function AppNavigation() {
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: "bold",
+          marginTop: 2,
+          fontFamily: "Poppins-SemiBold",
+
         },
         headerShown: false,
       })}

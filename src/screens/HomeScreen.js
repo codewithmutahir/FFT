@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { AuthContext } from "../AuthProvider";
 import firestore from "@react-native-firebase/firestore";
 import CustomTour from "../components/CustomTour";
+import { typography } from "../../theme/typography";
 
 const { width } = Dimensions.get("window");
 
@@ -275,12 +276,12 @@ export default function HomeScreen({ navigation }) {
                     </LinearGradient>
                     <View style={{ marginLeft: 15 }}>
                       <Text style={styles.cardTitle}>Joined Tournaments</Text>
-                      <Text style={styles.cardSubtitle}>Active participations</Text>
+                      <Text style={[styles.cardSubtitle, typography.cardText]}>Active participations</Text>
                     </View>
                   </View>
                   <View style={styles.statsSection}>
                     <Text style={styles.mainStat}>{joinedTournaments}</Text>
-                    <Text style={styles.statLabel}>Tournaments</Text>
+                    <Text style={[styles.statLabel, typography.cardText]}>Tournaments</Text>
                   </View>
                 </View>
               </LinearGradient>
@@ -317,7 +318,7 @@ export default function HomeScreen({ navigation }) {
                     </LinearGradient>
                     <View style={{ marginLeft: 15 }}>
                       <Text style={styles.cardTitle}>Won Tournaments</Text>
-                      <Text style={styles.cardSubtitle}>Victory count</Text>
+                      <Text style={[styles.cardSubtitle, typography.cardText]}>Victory count</Text>
                     </View>
                   </View>
                   <View style={styles.statsSection}>
@@ -343,7 +344,7 @@ export default function HomeScreen({ navigation }) {
                 style={styles.quickActionGradient}
               >
                 <Ionicons name="add-circle" size={24} color="#ffaa00" />
-                <Text style={styles.quickActionText}>Join Tournament</Text>
+                <Text style={[styles.quickActionText, typography.cardText]}>Join Tournament</Text>
               </LinearGradient>
             </TouchableOpacity>
 
@@ -356,7 +357,7 @@ export default function HomeScreen({ navigation }) {
                 style={styles.quickActionGradient}
               >
                 <Ionicons name="wallet" size={24} color="#00ffff" />
-                <Text style={styles.quickActionText}>Add Coins</Text>
+                <Text style={[styles.quickActionText, typography.cardText]}>Add Coins</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
