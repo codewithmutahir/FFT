@@ -9,19 +9,9 @@ import {
   Image,
   TouchableOpacity,
   Linking,
+  Alert,
 } from "react-native";
-import { db } from "../../firebase";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  doc,
-  updateDoc,
-  getDoc,
-  addDoc,
-  increment,
-} from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import * as ImagePicker from "expo-image-picker";
 import axios from "axios";
@@ -37,10 +27,28 @@ export default function WalletScreen({ navigation }) {
   const [activeSection, setActiveSection] = useState(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [accountType, setAccountType] = useState("");
+  const [accountName, setAccountName] = useState("");
   const [proof, setProof] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [error, setError] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+
+  // Deposit account details
+  const DEPOSIT_ACCOUNT = {
+    number: "03282217923",
+    name: "Muther Hussain",
+    type: "EasyPaisa"
+  };
+
+  // Debug log to check if update received
+  console.log("🔥 Wallet Screen Loaded - Version Check:", {
+    hasAccountFields: typeof setAccountNumber === 'function',
+    accountNumberState: accountNumber,
+    timestamp: new Date().toISOString(),
+    updateReceived: "NEW_WITHDRAWAL_FIELDS_LOADED"
+  });
 
   // Cloudinary configuration
   const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`;
@@ -58,25 +66,22 @@ export default function WalletScreen({ navigation }) {
 
     if (isAdmin) {
       // Admin sees ALL transactions (pending, approved, rejected)
-      transactionsQuery = query(
-        collection(db, "transactions"),
-        where("status", "in", ["pending", "approved", "rejected"])
-      );
+      transactionsQuery = firestore()
+        .collection('transactions')
+        .where('status', 'in', ['pending', 'approved', 'rejected']);
       console.log(
         "Admin query: Looking for all transactions (pending, approved, rejected)"
       );
     } else {
       // Normal users see only their approved, rejected, or failed transactions
-      transactionsQuery = query(
-        collection(db, "transactions"),
-        where("userId", "==", user.uid),
-        where("status", "in", ["approved", "rejected", "failed"])
-      );
+      transactionsQuery = firestore()
+        .collection('transactions')
+        .where('userId', '==', user.uid)
+        .where('status', 'in', ['approved', 'rejected', 'failed']);
       console.log("User query: Looking for user's non-pending transactions");
     }
 
-    const unsub = onSnapshot(
-      transactionsQuery,
+    const subscriber = transactionsQuery.onSnapshot(
       async (snapshot) => {
         console.log("Firestore snapshot received:", {
           docCount: snapshot.size,
@@ -90,8 +95,12 @@ export default function WalletScreen({ navigation }) {
           const data = { id: docSnapshot.id, ...docSnapshot.data() };
           if (data.userId) {
             try {
-              const userDoc = await getDoc(doc(db, "users", data.userId));
-              if (userDoc.exists()) {
+              const userDoc = await firestore()
+                .collection('users')
+                .doc(data.userId)
+                .get();
+              
+              if (userDoc.exists) {
                 const userData = userDoc.data();
                 return {
                   ...data,
@@ -140,7 +149,7 @@ export default function WalletScreen({ navigation }) {
 
     return () => {
       console.log("Cleaning up Firestore listener");
-      unsub();
+      subscriber();
     };
   }, [user]);
 
@@ -156,7 +165,19 @@ export default function WalletScreen({ navigation }) {
     }
   };
 
-  // Handle deposit with Cloudinary upload
+  // Copy account number to clipboard (optional feature)
+  const copyAccountNumber = () => {
+    // If you have Clipboard API available, you can use it
+    Alert.alert(
+      "Account Number",
+      DEPOSIT_ACCOUNT.number,
+      [
+        { text: "OK" }
+      ]
+    );
+  };
+
+  // Handle deposit with Cloudinary upload 
   const handleDeposit = async () => {
     if (!depositAmount || isNaN(depositAmount) || Number(depositAmount) <= 0) {
       setError("Please enter a valid amount");
@@ -168,12 +189,6 @@ export default function WalletScreen({ navigation }) {
     }
 
     try {
-      console.log("Starting deposit process:", {
-        amount: depositAmount,
-        userId: user.uid,
-        proofUri: proof,
-      });
-
       const formData = new FormData();
       formData.append("file", {
         uri: proof,
@@ -196,12 +211,14 @@ export default function WalletScreen({ navigation }) {
         amount: Number(depositAmount),
         proof: proofUrl,
         status: "pending",
-        timestamp: new Date(),
+        timestamp: firestore.Timestamp.now(), 
       };
 
       console.log("Creating transaction document:", transactionData);
 
-      await addDoc(collection(db, "transactions"), transactionData);
+      await firestore()
+        .collection("transactions")
+        .add(transactionData);
 
       setDepositAmount("");
       setProof(null);
@@ -211,7 +228,7 @@ export default function WalletScreen({ navigation }) {
     } catch (error) {
       const errorMessage =
         error.response?.data?.error?.message || error.message;
-      console.error("Cloudinary Upload Error:", errorMessage);
+      console.error("Deposit Error:", errorMessage);
       setError("Failed to submit deposit: " + errorMessage);
     }
   };
@@ -227,40 +244,66 @@ export default function WalletScreen({ navigation }) {
       return;
     }
 
-    try {
-      // User ka document get karo
-      const userRef = doc(db, "users", user.uid);
-      const userSnap = await getDoc(userRef);
+    if (!accountNumber.trim()) {
+      setError("Please enter your account number");
+      return;
+    }
 
-      if (!userSnap.exists()) {
+    if (!accountType.trim()) {
+      setError("Please enter account type (EasyPaisa/JazzCash)");
+      return;
+    }
+
+    if (!accountName.trim()) {
+      setError("Please enter account holder name");
+      return;
+    }
+
+    try {
+      // FIXED: Use React Native Firebase syntax
+      const userDoc = await firestore()
+        .collection("users")
+        .doc(user.uid)
+        .get();
+
+      if (!userDoc.exists) {
         setError("User record not found");
         return;
       }
 
-      const userData = userSnap.data();
+      const userData = userDoc.data();
       const currentCoins = userData.coins || 0;
 
-      // Agar coins kam hain to withdraw na ho
+      // Check if user has enough coins
       if (currentCoins < Number(withdrawAmount)) {
-        setError("You don’t have enough coins to withdraw");
+        setError("You don't have enough coins to withdraw");
         return;
       }
 
-      // Agar balance sahi hai to withdraw transaction create karo
+      // Create withdrawal transaction
       const transactionData = {
         userId: user.uid,
         type: "withdraw",
         amount: Number(withdrawAmount),
+        accountNumber: accountNumber.trim(),
+        accountType: accountType.trim(),
+        accountName: accountName.trim(),
         proof: null,
         status: "pending",
-        timestamp: new Date(),
+        timestamp: firestore.Timestamp.now(), // FIXED: Use firestore.Timestamp.now()
       };
 
       console.log("Creating withdrawal transaction:", transactionData);
 
-      await addDoc(collection(db, "transactions"), transactionData);
+      // FIXED: Use React Native Firebase syntax
+      await firestore()
+        .collection("transactions")
+        .add(transactionData);
 
       setWithdrawAmount("");
+      setAccountNumber("");
+      setAccountType("");
+      setAccountName("");
       setError("");
       setActiveSection(null);
       alert("Withdrawal request submitted. Awaiting admin approval.");
@@ -270,24 +313,40 @@ export default function WalletScreen({ navigation }) {
     }
   };
 
-  // Admin approve transaction
+  // Admin approve transaction - FIXED FOR REACT NATIVE FIREBASE
   const handleApproveTransaction = async (transaction) => {
     try {
       console.log("Approving transaction:", transaction.id);
 
-      const transactionRef = doc(db, "transactions", transaction.id);
-      const userRef = doc(db, "users", transaction.userId);
-
-      await updateDoc(transactionRef, { status: "approved" });
+      // FIXED: Use React Native Firebase syntax
+      await firestore()
+        .collection("transactions")
+        .doc(transaction.id)
+        .update({ status: "approved" });
 
       // Only add coins for deposits
       if (transaction.type === "deposit") {
-        await updateDoc(userRef, { coins: increment(transaction.amount) });
+        // FIXED: Use React Native Firebase syntax with increment
+        await firestore()
+          .collection("users")
+          .doc(transaction.userId)
+          .update({
+            coins: firestore.FieldValue.increment(transaction.amount)
+          });
+        
         console.log(
           `Approved deposit ${transaction.id}, added ${transaction.amount} coins to user ${transaction.userId}`
         );
-      } else {
-        console.log(`Approved withdrawal ${transaction.id}, no coins added`);
+      } else if (transaction.type === "withdraw") {
+        // For withdrawals, deduct coins when approved
+        await firestore()
+          .collection("users")
+          .doc(transaction.userId)
+          .update({
+            coins: firestore.FieldValue.increment(-transaction.amount)
+          });
+        
+        console.log(`Approved withdrawal ${transaction.id}, deducted ${transaction.amount} coins from user ${transaction.userId}`);
       }
 
       alert(
@@ -299,14 +358,16 @@ export default function WalletScreen({ navigation }) {
     }
   };
 
-  // Admin reject transaction
+  // Admin reject transaction - FIXED FOR REACT NATIVE FIREBASE
   const handleRejectTransaction = async (transaction) => {
     try {
       console.log("Rejecting transaction:", transaction.id);
 
-      const transactionRef = doc(db, "transactions", transaction.id);
-
-      await updateDoc(transactionRef, { status: "rejected" });
+      // FIXED: Use React Native Firebase syntax
+      await firestore()
+        .collection("transactions")
+        .doc(transaction.id)
+        .update({ status: "rejected" });
 
       console.log(
         `Rejected transaction ${transaction.id} for ${transaction.inGameName}`
@@ -320,12 +381,15 @@ export default function WalletScreen({ navigation }) {
     }
   };
 
-  // Debug function to show all transactions (for admin)
+  // Debug function to show all transactions (for admin) - FIXED
   const showAllTransactions = async () => {
     if (user?.uid === AUTH_ADMIN_ID) {
       try {
-        const allTransactionsQuery = query(collection(db, "transactions"));
-        const snapshot = await getDocs(allTransactionsQuery);
+        // FIXED: Use React Native Firebase syntax
+        const snapshot = await firestore()
+          .collection("transactions")
+          .get();
+        
         console.log("ALL TRANSACTIONS IN DATABASE:");
         snapshot.docs.forEach((doc) => {
           console.log(doc.id, doc.data());
@@ -346,6 +410,28 @@ export default function WalletScreen({ navigation }) {
       <Text style={styles.transactionText}>
         User: {item.inGameName} (UID: {item.inGameUID})
       </Text>
+      
+      {/* Show account details for withdrawal transactions */}
+      {item.type === "withdraw" && (
+        <>
+          {item.accountNumber && (
+            <Text style={styles.transactionText}>
+              Account: {item.accountNumber}
+            </Text>
+          )}
+          {item.accountType && (
+            <Text style={styles.transactionText}>
+              Type: {item.accountType}
+            </Text>
+          )}
+          {item.accountName && (
+            <Text style={styles.transactionText}>
+              Name: {item.accountName}
+            </Text>
+          )}
+        </>
+      )}
+      
       <Text
         style={[
           styles.transactionText,
@@ -471,6 +557,37 @@ export default function WalletScreen({ navigation }) {
               >
                 Deposit Funds
               </Text>
+
+              {/* Deposit Account Information Card */}
+              <View style={styles.accountInfoCard}>
+                <Text style={styles.accountInfoTitle}>
+                  <Ionicons name="information-circle" size={20} color="#ff4500" />
+                  {" "}Deposit To This Account
+                </Text>
+                
+                <View style={styles.accountInfoRow}>
+                  <Text style={styles.accountInfoLabel}>Account Type:</Text>
+                  <Text style={styles.accountInfoValue}>{DEPOSIT_ACCOUNT.type}</Text>
+                </View>
+                
+                <View style={styles.accountInfoRow}>
+                  <Text style={styles.accountInfoLabel}>Account Number:</Text>
+                  <TouchableOpacity onPress={copyAccountNumber} style={styles.accountNumberContainer}>
+                    <Text style={styles.accountInfoValue}>{DEPOSIT_ACCOUNT.number}</Text>
+                    <Ionicons name="copy-outline" size={16} color="#ff4500" style={{ marginLeft: 8 }} />
+                  </TouchableOpacity>
+                </View>
+                
+                <View style={styles.accountInfoRow}>
+                  <Text style={styles.accountInfoLabel}>Account Name:</Text>
+                  <Text style={styles.accountInfoValue}>{DEPOSIT_ACCOUNT.name}</Text>
+                </View>
+
+                <Text style={styles.instructionText}>
+                  💡 Send money to the above account, then upload payment proof below
+                </Text>
+              </View>
+
               <TextInput
                 placeholder="Enter amount"
                 placeholderTextColor={"#6c6c6cff"}
@@ -538,6 +655,38 @@ export default function WalletScreen({ navigation }) {
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
               />
+              
+              <TextInput
+                placeholder="Account Number (03xxxxxxxxx)"
+                placeholderTextColor={"#6c6c6cff"}
+                value={accountNumber}
+                onChangeText={setAccountNumber}
+                keyboardType="phone-pad"
+                style={[styles.input, isFocused && { borderColor: "#ff4500" }]}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+              />
+
+              <TextInput
+                placeholder="Account Type (EasyPaisa/JazzCash)"
+                placeholderTextColor={"#6c6c6cff"}
+                value={accountType}
+                onChangeText={setAccountType}
+                style={[styles.input, isFocused && { borderColor: "#ff4500" }]}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+              />
+
+              <TextInput
+                placeholder="Account Holder Name"
+                placeholderTextColor={"#6c6c6cff"}
+                value={accountName}
+                onChangeText={setAccountName}
+                style={[styles.input, isFocused && { borderColor: "#ff4500" }]}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+              />
+
               {error ? <Text style={styles.error}>{error}</Text> : null}
               <TouchableOpacity
                 style={typography.button}
@@ -560,6 +709,17 @@ export default function WalletScreen({ navigation }) {
                 {user?.uid === AUTH_ADMIN_ID &&
                   " (Pending, Approved, Rejected)"}
               </Text>
+              
+              {/* Debug button for admin */}
+              {user?.uid === AUTH_ADMIN_ID && (
+                <TouchableOpacity
+                  style={styles.debugButton}
+                  onPress={showAllTransactions}
+                >
+                  <Text style={styles.debugButtonText}>Debug: Show All Transactions</Text>
+                </TouchableOpacity>
+              )}
+
               <FlatList
                 data={transactions}
                 renderItem={renderTransaction}
@@ -615,6 +775,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ff4400a3",
   },
+  cardIcon: {
+    marginBottom: 10,
+  },
   cardTitle: {
     color: "#ff4500",
     fontSize: 20,
@@ -627,17 +790,65 @@ const styles = StyleSheet.create({
     fontSize: 20,
     marginBottom: 10,
   },
+  // Account Info Card Styles
+  accountInfoCard: {
+    backgroundColor: "#2a2a2a",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#ff4500",
+  },
+  accountInfoTitle: {
+    color: "#ff4500",
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  accountInfoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+    paddingVertical: 4,
+  },
+  accountInfoLabel: {
+    color: "#ccc",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  accountInfoValue: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  accountNumberContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  instructionText: {
+    color: "#ffaa00",
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 8,
+    fontStyle: "italic",
+  },
   input: {
     borderWidth: 1,
     borderColor: "#fff",
     color: "#fff",
     padding: 18,
-    borderRadius: 4,
+    borderRadius: 8,
     marginBottom: 10,
     fontSize: 16,
-    borderRadius: 8,
   },
-  proofImage: { width: 100, height: 100, marginVertical: 10, borderRadius: 4 },
+  proofImage: { 
+    width: 100, 
+    height: 100, 
+    marginVertical: 10, 
+    borderRadius: 4 
+  },
   error: {
     color: "red",
     marginBottom: 10,
@@ -651,8 +862,15 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     elevation: 2,
   },
-  transactionText: { color: "#fff", marginBottom: 5 },
-  debugText: { color: "#ffaa00", marginBottom: 5, fontSize: 12 },
+  transactionText: { 
+    color: "#fff", 
+    marginBottom: 5 
+  },
+  debugText: { 
+    color: "#ffaa00", 
+    marginBottom: 5, 
+    fontSize: 12 
+  },
   debugButton: {
     backgroundColor: "#0066cc",
     padding: 8,
@@ -660,27 +878,35 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     alignItems: "center",
   },
-  debugButtonText: { color: "#fff", fontSize: 12 },
+  debugButtonText: { 
+    color: "#fff", 
+    fontSize: 12 
+  },
   buttonContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginTop: 5,
   },
-  approveButton: {
-    backgroundColor: "#00ff00",
+  button: {
     padding: 8,
     borderRadius: 4,
     alignItems: "center",
     flex: 1,
+  },
+  approveButton: {
+    backgroundColor: "#00ff00",
     marginRight: 5,
   },
   rejectButton: {
     backgroundColor: "#ff0000",
-    padding: 8,
-    borderRadius: 4,
-    alignItems: "center",
-    flex: 1,
+    marginLeft: 5,
   },
-  approveButtonText: { color: "#fff", fontWeight: "bold" },
-  rejectButtonText: { color: "#fff", fontWeight: "bold" },
+  approveButtonText: { 
+    color: "#fff", 
+    fontWeight: "bold" 
+  },
+  rejectButtonText: { 
+    color: "#fff", 
+    fontWeight: "bold" 
+  },
 });

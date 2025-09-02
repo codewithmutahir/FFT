@@ -7,27 +7,30 @@ import {
   Text,
   TouchableOpacity,
   Image,
+  Linking,
+  Alert,
 } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { enableScreens } from 'react-native-screens';
+import { enableScreens } from "react-native-screens";
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { AuthProvider, AuthContext } from "./src/AuthProvider.js";
+import { AuthProvider, AuthContext } from "./src/AuthProvider";
 import LoginScreen from "./src/screens/LoginScreen.js";
 import RegisterScreen from "./src/screens/RegisterScreen.js";
 import TournamentList from "./src/screens/TournamentList.js";
 import SlotBooking from "./src/screens/SlotBooking.js";
 import WalletScreen from "./src/screens/WalletScreen.js";
 import UpdatesScreen from "./src/screens/UpdatesScreen.js";
+import MoreScreen from "./src/screens/MoreScreen.js";
 import AppNavigation from "./src/AppNavigation.js";
-import { db } from "./firebase.js";
-import { doc, onSnapshot, collection, query, where } from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 import Ionicons from "react-native-vector-icons/Ionicons.js";
 import * as Notifications from "expo-notifications";
 import { useFonts } from "expo-font";
+import useNetwork from "./src/components/useNetwork.js";
 
 const Stack = createNativeStackNavigator();
 
@@ -39,56 +42,58 @@ Notifications.setNotificationHandler({
   }),
 });
 
-function CustomHeader({ navigation, user, route }) {
+function CustomHeader({ navigation, user }) {
   const insets = useSafeAreaInsets();
   const [coins, setCoins] = useState(0);
   const [hasUnreadUpdates, setHasUnreadUpdates] = useState(false);
 
   useEffect(() => {
     if (user) {
-      const unsubUser = onSnapshot(
-        doc(db, "users", user.uid),
-        (userSnapshot) => {
+      const unsubUser = firestore()
+        .collection("users")
+        .doc(user.uid)
+        .onSnapshot((userSnapshot) => {
           const userData = userSnapshot.data();
           setCoins(userData?.coins || 0);
 
-          const lastReadUpdates = userData?.lastReadUpdates?.toDate();
+          const lastReadUpdates = userData?.lastReadUpdates?.toDate?.();
 
-          const q = query(collection(db, "active-tournaments"));
-          const unsubUpdates = onSnapshot(q, (snapshot) => {
-            const unread = snapshot.docs.some((doc) => {
-              const data = doc.data();
-              const hasBookedSlot = data.bookedSlots?.some(
-                (slot) => slot.uid === user.uid
-              );
-              const hasNewUpdate =
-                (data.roomId && data.roomId !== "Not released yet") ||
-                (data.pass && data.pass !== "Not released yet");
+          const unsubUpdates = firestore()
+            .collection("active-tournaments")
+            .onSnapshot((snapshot) => {
+              const unread = snapshot.docs.some((docSnap) => {
+                const data = docSnap.data();
+                const hasBookedSlot = data.bookedSlots?.some(
+                  (slot) => slot.uid === user.uid
+                );
+                const hasNewUpdate =
+                  (data.roomId && data.roomId !== "Not released yet") ||
+                  (data.pass && data.pass !== "Not released yet");
 
-              const updateTime =
-                (data.updatedAt && data.updatedAt.toDate
-                  ? data.updatedAt.toDate()
-                  : data.updatedAt
-                  ? new Date(data.updatedAt)
-                  : null) ||
-                (data.createdAt && data.createdAt.toDate
-                  ? data.createdAt.toDate()
-                  : data.createdAt
-                  ? new Date(data.createdAt)
-                  : null) ||
-                new Date();
-              const isUnread =
-                !lastReadUpdates ||
-                (updateTime && updateTime > lastReadUpdates);
+                const updateTime =
+                  (data.updatedAt?.toDate
+                    ? data.updatedAt.toDate()
+                    : data.updatedAt
+                    ? new Date(data.updatedAt)
+                    : null) ||
+                  (data.createdAt?.toDate
+                    ? data.createdAt.toDate()
+                    : data.createdAt
+                    ? new Date(data.createdAt)
+                    : null) ||
+                  new Date();
 
-              return hasBookedSlot && hasNewUpdate && isUnread;
+                const isUnread =
+                  !lastReadUpdates || (updateTime && updateTime > lastReadUpdates);
+
+                return hasBookedSlot && hasNewUpdate && isUnread;
+              });
+
+              setHasUnreadUpdates(unread);
             });
-            setHasUnreadUpdates(unread);
-          });
 
           return () => unsubUpdates();
-        }
-      );
+        });
 
       return () => unsubUser();
     }
@@ -97,7 +102,10 @@ function CustomHeader({ navigation, user, route }) {
   return (
     <View style={[styles.header, { paddingTop: insets.top }]}>
       <View style={styles.headerLeft}>
-        <Text style={styles.headerTitle}>Gaming App</Text>
+       <Image
+         source={require('./assets/pro-arena-icon.png')}
+         style={styles.AppLogo}
+       />
       </View>
       <View style={styles.headerRight}>
         <TouchableOpacity
@@ -113,6 +121,7 @@ function CustomHeader({ navigation, user, route }) {
           />
           <Text style={styles.coinsText}>{coins} Coins</Text>
         </TouchableOpacity>
+
         <TouchableOpacity
           onPress={() => navigation.navigate("Updates")}
           style={styles.updatesContainer}
@@ -128,20 +137,47 @@ function CustomHeader({ navigation, user, route }) {
   );
 }
 
+// ✅ NEW - Floating WhatsApp Button Component
+function FloatingWhatsAppButton() {
+  const handleWhatsAppPress = () => {
+    // 🔹 Yahan apna WhatsApp group link daalo
+    const whatsappGroupLink = "https://chat.whatsapp.com/YOUR_GROUP_INVITE_LINK";
+    
+    Linking.canOpenURL(whatsappGroupLink)
+      .then(supported => {
+        if (supported) {
+          Linking.openURL(whatsappGroupLink);
+        } else {
+          Alert.alert("Error", "WhatsApp is not installed on your device");
+        }
+      })
+      .catch(err => {
+        console.log('WhatsApp link error:', err);
+        Alert.alert("Error", "Unable to open WhatsApp");
+      });
+  };
+
+  return (
+    <TouchableOpacity
+      style={styles.whatsappFloat}
+      onPress={handleWhatsAppPress}
+      activeOpacity={0.8}
+    >
+      <Ionicons name="logo-whatsapp" size={28} color="#fff" />
+    </TouchableOpacity>
+  );
+}
+
 function AuthStack() {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false, // Hide header for non-logged-in users
-      }}
-    >
-      <Stack.Screen 
-        name="Login" 
-        component={LoginScreen} 
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen
+        name="Login"
+        component={LoginScreen}
         options={{ animationEnabled: false }}
       />
-      <Stack.Screen 
-        name="Register" 
+      <Stack.Screen
+        name="Register"
         component={RegisterScreen}
         options={{ animationEnabled: false }}
       />
@@ -152,39 +188,25 @@ function AuthStack() {
 function AppStack() {
   const { user } = useContext(AuthContext);
   return (
-    <Stack.Navigator
-      screenOptions={({ navigation, route }) => ({
-        header: () => (
-          <CustomHeader navigation={navigation} user={user} route={route} />
-        ),
-      })}
-    >
-      <Stack.Screen
-        name="HomeTabs"
-        component={AppNavigation}
-        options={{ title: "Home" }}
-      />
-      <Stack.Screen
-        name="TournamentList"
-        component={TournamentList}
-        options={{ title: "Tournaments" }}
-      />
-      <Stack.Screen
-        name="SlotBooking"
-        component={SlotBooking}
-        options={{ title: "Book Slot" }}
-      />
-      <Stack.Screen
-        name="Wallet"
-        component={WalletScreen}
-        options={{ title: "Wallet" }}
-      />
-      <Stack.Screen
-        name="Updates"
-        component={UpdatesScreen}
-        options={{ title: "Updates" }}
-      />
-    </Stack.Navigator>
+    <View style={{ flex: 1 }}>
+      <Stack.Navigator
+        screenOptions={({ navigation, route }) => ({
+          header: () => (
+            <CustomHeader navigation={navigation} user={user} route={route} />
+          ),
+        })}
+      >
+        <Stack.Screen name="HomeTabs" component={AppNavigation} />
+        <Stack.Screen name="TournamentList" component={TournamentList} />
+        <Stack.Screen name="SlotBooking" component={SlotBooking} />
+        <Stack.Screen name="Wallet" component={WalletScreen} />
+        <Stack.Screen name="Updates" component={UpdatesScreen} />
+        <Stack.Screen name="More" component={MoreScreen} />
+      </Stack.Navigator>
+      
+      {/* ✅ NEW - Floating WhatsApp Button */}
+      <FloatingWhatsAppButton />
+    </View>
   );
 }
 
@@ -208,10 +230,11 @@ function AppNavigator() {
   );
 }
 
-// Enable screens for better navigation performance
 enableScreens();
 
-export default function App() {
+function App() {
+  const isConnected = useNetwork();
+
   const [fontsLoaded] = useFonts({
     "Ubuntu-Bold": require("./assets/fonts/UbuntuBold.ttf"),
     "Ubuntu-Medium": require("./assets/fonts/UbuntuMedium.ttf"),
@@ -233,19 +256,28 @@ export default function App() {
     })();
   }, []);
 
-  if (!fontsLoaded) {
-    return null;
-  }
+  if (!fontsLoaded) return null;
 
   return (
     <SafeAreaProvider>
       <AuthProvider>
         <StatusBar barStyle="light-content" backgroundColor="#2a2a2a" />
+
+        {/* 🔹 Offline Banner */}
+        {!isConnected && (
+          <View style={styles.offlineBanner}>
+            <Ionicons name="wifi-off" size={16} color="#fff" style={styles.offlineIcon} />
+            <Text style={styles.offlineText}>No Internet Connection</Text>
+          </View>
+        )}
+
         <AppNavigator />
       </AuthProvider>
     </SafeAreaProvider>
   );
 }
+
+export default App;
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -257,6 +289,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 15,
+    paddingTop: 30,
     paddingBottom: 10,
     backgroundColor: "#2a2a2a",
     borderBottomWidth: 1,
@@ -276,16 +309,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginLeft: 10,
   },
-  backContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 10,
-  },
-  backText: {
-    color: "#fff",
-    fontSize: 16,
-    marginLeft: 5,
-  },
   coinsContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -297,6 +320,11 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     marginRight: 5,
+  },
+  AppLogo: {
+    width: 50,
+    height: 50,
+    marginTop: 15,
   },
   coinsText: {
     color: "#ff4500",
@@ -324,5 +352,45 @@ const styles = StyleSheet.create({
     fontSize: 18,
     textAlign: "center",
     marginTop: 20,
+  },
+  // 🔹 Offline Banner Styles
+  offlineBanner: {
+    backgroundColor: '#ff4444',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  offlineIcon: {
+    marginRight: 8,
+  },
+  offlineText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  // ✅ NEW - Floating WhatsApp Button Styles
+  whatsappFloat: {
+    position: 'absolute',
+    bottom: 30,
+    right: 20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#25D366', 
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000', 
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    zIndex: 1000, 
   },
 });

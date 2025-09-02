@@ -8,37 +8,19 @@ import {
   StyleSheet,
   Animated,
 } from "react-native";
-import { db } from "../../firebase";
-import { collection, onSnapshot } from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 import { typography } from "../../theme/typography";
-// Skeleton Loader Component
+import ShimmerPlaceHolder from "react-native-shimmer-placeholder";
+
+
 const SkeletonLoader = () => {
-  const animatedValue = new Animated.Value(0);
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.timing(animatedValue, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: true,
-      })
-    ).start();
-  }, []);
-
-  const backgroundColor = animatedValue.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: ["#e0e0e0", "#f5f5f5", "#e0e0e0"],
-  });
-
   return (
     <View style={styles.skeletonCard}>
-      <Animated.View style={[styles.skeletonImage, { backgroundColor }]} />
+      <ShimmerPlaceHolder style={styles.skeletonImage} />
       <View style={styles.skeletonContent}>
-        <Animated.View style={[styles.skeletonTitle, { backgroundColor }]} />
-        <Animated.View
-          style={[styles.skeletonDescription, { backgroundColor }]}
-        />
-        <Animated.View style={[styles.skeletonStatus, { backgroundColor }]} />
+        <ShimmerPlaceHolder style={styles.skeletonTitle} />
+        <ShimmerPlaceHolder style={styles.skeletonDescription} />
+        <ShimmerPlaceHolder style={styles.skeletonStatus} />
       </View>
     </View>
   );
@@ -49,43 +31,53 @@ export default function TournamentCategories({ navigation }) {
   const [activeTournaments, setActiveTournaments] = useState({});
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Fetch tournament categories
-    const unsubCategories = onSnapshot(
-      collection(db, "tournament-categories"),
-      (snapshot) => {
-        const categoryList = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setCategories(categoryList);
-      }
-    );
+ useEffect(() => {
+    // Fetch tournament categories with real-time listener
+    const unsubCategories = firestore()
+      .collection("tournament-categories")
+      .onSnapshot(
+        (snapshot) => {
+          const categoryList = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+          setCategories(categoryList);
+        },
+        (error) => {
+          console.error("Error fetching categories:", error);
+          setLoading(false);
+        }
+      );
 
-    // Fetch active tournaments and group by category
-    const unsubTournaments = onSnapshot(
-      collection(db, "active-tournaments"),
-      (snapshot) => {
-        const tournaments = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
+    // Fetch active tournaments with real-time listener
+    const unsubTournaments = firestore()
+      .collection("active-tournaments")
+      .where("isActive", "==", true) // Filter active tournaments at query level
+      .onSnapshot(
+        (snapshot) => {
+          const tournaments = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
 
-        // Group tournaments by categoryId
-        const grouped = tournaments.reduce((acc, tournament) => {
-          if (tournament.isActive) {
+          // Group tournaments by categoryId
+          const grouped = tournaments.reduce((acc, tournament) => {
             const categoryId = tournament.categoryId;
             if (!acc[categoryId]) acc[categoryId] = [];
             acc[categoryId].push(tournament);
-          }
-          return acc;
-        }, {});
+            return acc;
+          }, {});
 
-        setActiveTournaments(grouped);
-        setLoading(false);
-      }
-    );
+          setActiveTournaments(grouped);
+          setLoading(false);
+        },
+        (error) => {
+          console.error("Error fetching tournaments:", error);
+          setLoading(false);
+        }
+      );
 
+    // Cleanup function to unsubscribe from listeners
     return () => {
       unsubCategories();
       unsubTournaments();

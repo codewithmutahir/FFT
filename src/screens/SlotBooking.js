@@ -1,7 +1,16 @@
 import React, { useEffect, useState, useContext } from "react";
-import { View, Text, TouchableOpacity, Modal, TextInput, FlatList, StyleSheet, Alert, ActivityIndicator } from "react-native";
-import { db } from "../../firebase";
-import { doc, onSnapshot, updateDoc, getDoc } from "firebase/firestore";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  Modal,
+  TextInput,
+  FlatList,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+} from "react-native";
+import firestore from "@react-native-firebase/firestore";
 import { AuthContext } from "../AuthProvider";
 import { typography } from "../../theme/typography";
 
@@ -26,42 +35,59 @@ export default function SlotBooking({ route, navigation }) {
     }
 
     // Fetch tournament data from active-tournaments collection
-    const unsubTournament = onSnapshot(doc(db, "active-tournaments", tournamentId), (snapshot) => {
-      if (snapshot.exists()) {
-        const tournamentData = snapshot.data();
-        console.log("Tournament data:", tournamentData);
-        setTournament(tournamentData);
-        
-        // Check if user already has a booked slot
-        const userSlot = tournamentData.bookedSlots?.find(slot => slot.uid === user.uid);
-        setUserBookedSlot(userSlot);
-        console.log("User booked slot:", userSlot);
-      } else {
-        console.log("Tournament not found:", tournamentId);
-        Alert.alert("Error", "Tournament not found!");
-      }
-    }, (error) => {
-      console.error("Error fetching tournament:", error.message);
-      Alert.alert("Error", "Failed to load tournament: " + error.message);
-    });
+    const unsubTournament = firestore()
+      .collection("active-tournaments")
+      .doc(tournamentId)
+      .onSnapshot(
+        (snapshot) => {
+          if (snapshot.exists) {
+            const tournamentData = snapshot.data();
+            console.log("Tournament data:", tournamentData);
+            setTournament(tournamentData);
+
+            // Check if user already has a booked slot
+            const userSlot = tournamentData.bookedSlots?.find(
+              (slot) => slot.uid === user.uid
+            );
+            setUserBookedSlot(userSlot);
+            console.log("User booked slot:", userSlot);
+          } else {
+            console.log("Tournament not found:", tournamentId);
+            Alert.alert("Error", "Tournament not found!");
+          }
+        },
+        (error) => {
+          console.error("Error fetching tournament:", error.message);
+          Alert.alert("Error", "Failed to load tournament: " + error.message);
+        }
+      );
 
     // Fetch user coins and in-game details
-    const unsubUser = onSnapshot(doc(db, "users", user.uid), (userSnapshot) => {
-      if (userSnapshot.exists()) {
-        const userData = userSnapshot.data();
-        setUserCoins(userData.coins || 0);
-        setInGameName(userData.inGameName || "");
-        setUid(userData.inGameUID || "");
-        setCurrentUserProfile(userData); // Store current user profile
-        console.log("User data:", userData);
-      } else {
-        console.log("User document not found for UID:", user.uid);
-        Alert.alert("Setup Required", "Please complete your profile setup first.");
-      }
-    }, (error) => {
-      console.error("Error fetching user data:", error.message);
-      Alert.alert("Error", "Failed to load user data: " + error.message);
-    });
+    const unsubUser = firestore()
+      .collection("users")
+      .doc(user.uid)
+      .onSnapshot(
+        (userSnapshot) => {
+          if (userSnapshot.exists) {
+            const userData = userSnapshot.data();
+            setUserCoins(userData.coins || 0);
+            setInGameName(userData.inGameName || "");
+            setUid(userData.inGameUID || "");
+            setCurrentUserProfile(userData); // Store current user profile
+            console.log("User data:", userData);
+          } else {
+            console.log("User document not found for UID:", user.uid);
+            Alert.alert(
+              "Setup Required",
+              "Please complete your profile setup first."
+            );
+          }
+        },
+        (error) => {
+          console.error("Error fetching user data:", error.message);
+          Alert.alert("Error", "Failed to load user data: " + error.message);
+        }
+      );
 
     return () => {
       unsubTournament();
@@ -69,102 +95,125 @@ export default function SlotBooking({ route, navigation }) {
     };
   }, [user, tournamentId]);
 
-  const bookSlot = async () => {
-    if (!user || !tournament) {
-      setError("User or tournament data unavailable");
-      return;
-    }
+const bookSlot = async () => {
+  if (!user || !tournament) {
+    setError("User or tournament data unavailable");
+    return;
+  }
 
-    // Validation
-    if (!inGameName.trim()) {
-      setError("Please enter your In-Game Name");
-      return;
-    }
+  // Validation
+  if (!inGameName.trim()) {
+    setError("Please enter your In-Game Name");
+    return;
+  }
 
-    if (!uid.trim()) {
-      setError("Please enter your UID");
-      return;
-    }
+  if (!uid.trim()) {
+    setError("Please enter your UID");
+    return;
+  }
 
-    // Double-check if user already has a booked slot
-    if (userBookedSlot) {
-      setError("You already have a slot booked in this tournament!");
-      return;
-    }
+  // Double-check if user already has a booked slot
+  if (userBookedSlot) {
+    setError("You already have a slot booked in this tournament!");
+    return;
+  }
 
-    const entryFee = tournament.entryFee || 0;
-    if (userCoins < entryFee) {
-      setError(`Insufficient coins! You need ${entryFee} coins, but you have ${userCoins}.`);
-      return;
-    }
+  const entryFee = tournament.entryFee || 0;
+  if (userCoins < entryFee) {
+    setError(
+      `Insufficient coins! You need ${entryFee} coins, but you have ${userCoins}.`
+    );
+    return;
+  }
 
-    // Check if selected slot is already taken
-    const isSlotTaken = tournament.bookedSlots?.some(slot => slot.slotNumber === selectedSlot);
-    if (isSlotTaken) {
-      setError("This slot has already been taken. Please select another slot.");
-      return;
-    }
+  // Check if selected slot is already taken
+  const isSlotTaken = tournament.bookedSlots?.some(
+    (slot) => slot.slotNumber === selectedSlot
+  );
+  if (isSlotTaken) {
+    setError("This slot has already been taken. Please select another slot.");
+    return;
+  }
 
-    try {
-      setLoading(true);
-      const userRef = doc(db, "users", user.uid);
-      const tournamentRef = doc(db, "active-tournaments", tournamentId);
-      
-      const updatedCoins = userCoins - entryFee;
+  try {
+    setLoading(true);
 
-      // Update user coins and in-game details
-      await updateDoc(userRef, { 
-        coins: updatedCoins,
-        inGameName: inGameName.trim(),
-        inGameUID: uid.trim()
-      });
+    const userRef = firestore().collection("users").doc(user.uid);
+    const tournamentRef = firestore()
+      .collection("active-tournaments")
+      .doc(tournamentId);
 
-      // Update tournament booked slots
-      const updatedSlots = tournament.bookedSlots ? [...tournament.bookedSlots] : [];
-      updatedSlots.push({
-        slotNumber: selectedSlot,
-        uid: user.uid,
-        inGameName: inGameName.trim(),
-        inGameUID: uid.trim(),
-        status: "confirmed",
-        bookedAt: new Date().toISOString()
-      });
+    const updatedCoins = userCoins - entryFee;
 
-      await updateDoc(tournamentRef, {
-        bookedSlots: updatedSlots,
-      });
+    // Update user coins and in-game details
+    await userRef.update({
+      coins: updatedCoins,
+      inGameName: inGameName.trim(),
+      inGameUID: uid.trim(),
+    });
 
-      setModalVisible(false);
-      setSelectedSlot(null);
-      Alert.alert(
-        "Slot Booked Successfully!", 
-        `Slot ${selectedSlot} booked successfully! ${entryFee} coins deducted.\n\nYou'll be notified when the room ID and password are released. Check the Updates section regularly for tournament updates.`,
-        [{ text: "OK" }]
-      );
-    } catch (error) {
-      console.error("Error booking slot:", error);
-      setError("Failed to book slot: " + error.message);
-      Alert.alert("Error", "Failed to book slot: " + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    // Update tournament booked slots
+    const updatedSlots = tournament.bookedSlots
+      ? [...tournament.bookedSlots]
+      : [];
+    
+    // 🔧 FIX: Use new Date() instead of serverTimestamp() in array
+    updatedSlots.push({
+      slotNumber: selectedSlot,
+      uid: user.uid,
+      inGameName: inGameName.trim(),
+      inGameUID: uid.trim(),
+      status: "confirmed",
+      bookedAt: new Date(), // ✅ Changed from firestore.FieldValue.serverTimestamp()
+    });
+
+    await tournamentRef.update({
+      bookedSlots: updatedSlots,
+    });
+
+    setModalVisible(false);
+    setSelectedSlot(null);
+    Alert.alert(
+      "Slot Booked Successfully!",
+      `Slot ${selectedSlot} booked successfully! ${entryFee} coins deducted.\n\nYou'll be notified when the room ID and password are released. Check the Updates section regularly for tournament updates.`,
+      [{ text: "OK" }]
+    );
+  } catch (error) {
+    console.error("Error booking slot:", error);
+    setError("Failed to book slot: " + error.message);
+    Alert.alert("Error", "Failed to book slot: " + error.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const handleSlotPress = (slotNumber) => {
     if (userBookedSlot) {
-      Alert.alert("Already Booked", "You already have a slot booked in this tournament!");
+      Alert.alert(
+        "Already Booked",
+        "You already have a slot booked in this tournament!"
+      );
       return;
     }
 
-    const isSlotTaken = tournament?.bookedSlots?.some(slot => slot.slotNumber === slotNumber);
+    const isSlotTaken = tournament?.bookedSlots?.some(
+      (slot) => slot.slotNumber === slotNumber
+    );
     if (isSlotTaken) {
-      Alert.alert("Slot Unavailable", "This slot has already been taken. Please select another slot.");
+      Alert.alert(
+        "Slot Unavailable",
+        "This slot has already been taken. Please select another slot."
+      );
       return;
     }
 
     const entryFee = tournament?.entryFee || 0;
     if (userCoins < entryFee) {
-      Alert.alert("Insufficient Coins", `You need ${entryFee} coins to book a slot, but you have ${userCoins}.`);
+      Alert.alert(
+        "Insufficient Coins",
+        `You need ${entryFee} coins to book a slot, but you have ${userCoins}.`
+      );
       return;
     }
 
@@ -174,17 +223,19 @@ export default function SlotBooking({ route, navigation }) {
   };
 
   const renderSlot = ({ item }) => {
-    const bookedSlot = tournament?.bookedSlots?.find(s => s.slotNumber === item);
+    const bookedSlot = tournament?.bookedSlots?.find(
+      (s) => s.slotNumber === item
+    );
     const isBooked = !!bookedSlot;
     const isUserSlot = userBookedSlot?.slotNumber === item;
-    
+
     return (
       <TouchableOpacity
         style={[
-          styles.slot, 
+          styles.slot,
           isBooked && styles.booked,
           isUserSlot && styles.userSlot,
-          loading && styles.disabledSlot
+          loading && styles.disabledSlot,
         ]}
         disabled={isBooked || loading}
         onPress={() => handleSlotPress(item)}
@@ -193,9 +244,7 @@ export default function SlotBooking({ route, navigation }) {
           {isUserSlot ? "Your Slot" : isBooked ? "Booked" : `${item}`}
         </Text>
         {isBooked && !isUserSlot && (
-          <Text style={styles.slotPlayerText}>
-            {bookedSlot.inGameName}
-          </Text>
+          <Text style={styles.slotPlayerText}>{bookedSlot.inGameName}</Text>
         )}
       </TouchableOpacity>
     );
@@ -215,11 +264,15 @@ export default function SlotBooking({ route, navigation }) {
   const availableSlots = totalSlots - bookedSlotsCount;
 
   // Get updated user details from current profile instead of booked slot
-  const displayUserDetails = userBookedSlot && currentUserProfile ? {
-    slotNumber: userBookedSlot.slotNumber,
-    inGameName: currentUserProfile.inGameName || userBookedSlot.inGameName,
-    inGameUID: currentUserProfile.inGameUID || userBookedSlot.inGameUID
-  } : userBookedSlot;
+  const displayUserDetails =
+    userBookedSlot && currentUserProfile
+      ? {
+          slotNumber: userBookedSlot.slotNumber,
+          inGameName:
+            currentUserProfile.inGameName || userBookedSlot.inGameName,
+          inGameUID: currentUserProfile.inGameUID || userBookedSlot.inGameUID,
+        }
+      : userBookedSlot;
 
   return (
     <View style={styles.container}>
@@ -230,22 +283,36 @@ export default function SlotBooking({ route, navigation }) {
         </View>
       )}
       <View style={styles.header}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
           disabled={loading}
         >
-          <Text style={[typography.backButtonText, loading && styles.disabledText]}>← Back</Text>
+          <Text
+            style={[typography.backButtonText, loading && styles.disabledText]}
+          >
+            ← Back
+          </Text>
         </TouchableOpacity>
       </View>
 
-      <Text style={typography.headerTitle}>{tournament?.name || "Tournament"}</Text>
-      
+      <Text style={typography.headerTitle}>
+        {tournament?.name || "Tournament"}
+      </Text>
+
       <View style={styles.infoContainer}>
-        <Text style={[styles.info, typography.cardText]}>Entry Fee: Rs {tournament?.entryFee || 0}</Text>
-        <Text style={[styles.info, typography.cardText]}>Your Coins: {userCoins}</Text>
-        <Text style={[styles.info, typography.cardText]}>Prize Pool: Rs {tournament?.prizePool || 0}</Text>
-        <Text style={[styles.info, typography.cardText]}>Start Time: {tournament?.startTime || "TBA"}</Text>
+        <Text style={[styles.info, typography.cardText]}>
+          Entry Fee: Rs {tournament?.entryFee || 0}
+        </Text>
+        <Text style={[styles.info, typography.cardText]}>
+          Your Coins: {userCoins}
+        </Text>
+        <Text style={[styles.info, typography.cardText]}>
+          Prize Pool: Rs {tournament?.prizePool || 0}
+        </Text>
+        <Text style={[styles.info, typography.cardText]}>
+          Start Time: {tournament?.startTime || "TBA"}
+        </Text>
       </View>
 
       <View style={styles.statsContainer}>
@@ -253,18 +320,19 @@ export default function SlotBooking({ route, navigation }) {
           Available Slots: {availableSlots} / {totalSlots}
         </Text>
       </View>
-      
+
       {displayUserDetails && (
         <View style={styles.bookedContainer}>
           <Text style={styles.bookedInfo}>
             ✓ You have booked Slot {displayUserDetails.slotNumber}
           </Text>
           <Text style={styles.bookedDetails}>
-            In-Game: {displayUserDetails.inGameName || "Not set"} | UID: {displayUserDetails.inGameUID || "Not set"}
+            In-Game: {displayUserDetails.inGameName || "Not set"} | UID:{" "}
+            {displayUserDetails.inGameUID || "Not set"}
           </Text>
         </View>
       )}
-      
+
       <FlatList
         data={Array.from({ length: totalSlots }, (_, i) => i + 1)}
         renderItem={renderSlot}
@@ -278,7 +346,7 @@ export default function SlotBooking({ route, navigation }) {
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
             <Text style={styles.modalTitle}>Book Slot {selectedSlot}</Text>
-            
+
             <TextInput
               placeholder="In-Game Name"
               value={inGameName}
@@ -287,7 +355,7 @@ export default function SlotBooking({ route, navigation }) {
               placeholderTextColor="#888"
               editable={!loading}
             />
-            
+
             <TextInput
               placeholder="UID"
               value={uid}
@@ -297,16 +365,16 @@ export default function SlotBooking({ route, navigation }) {
               keyboardType="numeric"
               editable={!loading}
             />
-            
+
             <Text style={styles.confirmText}>
               Entry Fee: ₹{tournament?.entryFee || 0}
             </Text>
-            
+
             {error ? <Text style={styles.error}>{error}</Text> : null}
-            
+
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={[styles.confirmButton, loading && styles.disabledButton]} 
+              <TouchableOpacity
+                style={[styles.confirmButton, loading && styles.disabledButton]}
                 onPress={bookSlot}
                 disabled={loading}
               >
@@ -316,9 +384,9 @@ export default function SlotBooking({ route, navigation }) {
                   <Text style={styles.confirmButtonText}>Confirm Booking</Text>
                 )}
               </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.cancelButton, loading && styles.disabledButton]} 
+
+              <TouchableOpacity
+                style={[styles.cancelButton, loading && styles.disabledButton]}
                 onPress={() => {
                   setModalVisible(false);
                   setError("");
@@ -336,15 +404,15 @@ export default function SlotBooking({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: "#1a1a1a" 
+  container: {
+    flex: 1,
+    backgroundColor: "#1a1a1a",
   },
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: "#1a1a1a"
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#1a1a1a",
   },
   loadingText: {
     color: "#fff",
@@ -352,8 +420,8 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     padding: 15,
     paddingTop: 20,
   },
@@ -365,12 +433,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
   },
-  heading: { 
-    fontSize: 24, 
-    fontWeight: "bold", 
-    color: "#ff4500", 
+  heading: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#ff4500",
     marginBottom: 15,
-    textAlign: 'center',
+    textAlign: "center",
     paddingHorizontal: 15,
   },
   infoContainer: {
@@ -379,9 +447,9 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 10,
   },
-  info: { 
-    color: "#ffaa00", 
-    fontSize: 16, 
+  info: {
+    color: "#ffaa00",
+    fontSize: 16,
     marginBottom: 5,
   },
   statsContainer: {
@@ -390,7 +458,7 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     padding: 10,
     borderRadius: 10,
-    alignItems: 'center',
+    alignItems: "center",
   },
   statsText: {
     color: "#00ff88",
@@ -405,10 +473,10 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#00aa00",
   },
-  bookedInfo: { 
-    color: "#00ff00", 
-    fontSize: 18, 
-    fontWeight: "bold", 
+  bookedInfo: {
+    color: "#00ff00",
+    fontSize: 18,
+    fontWeight: "bold",
     textAlign: "center",
     marginBottom: 5,
   },
@@ -439,16 +507,16 @@ const styles = StyleSheet.create({
     borderColor: "#444",
     minHeight: 50,
   },
-  booked: { 
-    backgroundColor: "#660000", 
+  booked: {
+    backgroundColor: "#660000",
     borderColor: "#ff0000",
   },
-  userSlot: { 
+  userSlot: {
     backgroundColor: "#006600",
     borderColor: "#00aa00",
   },
-  slotText: { 
-    color: "#fff", 
+  slotText: {
+    color: "#fff",
     fontSize: 14,
     fontWeight: "bold",
   },
@@ -460,30 +528,30 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.8)",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  modal: { 
+  modal: {
     backgroundColor: "#2a2a2a",
     borderRadius: 15,
     padding: 25,
-    width: '90%',
+    width: "90%",
     maxWidth: 400,
   },
-  modalTitle: { 
-    color: "#ff4500", 
-    fontSize: 20, 
-    fontWeight: "bold", 
-    marginBottom: 20, 
-    textAlign: "center" 
+  modalTitle: {
+    color: "#ff4500",
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 20,
+    textAlign: "center",
   },
-  input: { 
-    borderWidth: 1, 
-    borderColor: "#444", 
-    color: "#fff", 
-    padding: 15, 
-    borderRadius: 8, 
+  input: {
+    borderWidth: 1,
+    borderColor: "#444",
+    color: "#fff",
+    padding: 15,
+    borderRadius: 8,
     marginBottom: 15,
     backgroundColor: "#1a1a1a",
     fontSize: 16,
@@ -495,15 +563,15 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 15,
   },
-  error: { 
-    color: "#ff4444", 
-    marginBottom: 15, 
+  error: {
+    color: "#ff4444",
+    marginBottom: 15,
     textAlign: "center",
     fontSize: 14,
   },
   modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     gap: 10,
   },
   confirmButton: {

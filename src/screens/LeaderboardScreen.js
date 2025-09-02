@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { View, Text, FlatList, StyleSheet, TouchableOpacity, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { db } from "../../firebase";
-import { collection, query, orderBy, limit, onSnapshot } from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 import { typography } from "../../theme/typography";
 
 // Simple Skeleton Component
@@ -47,21 +46,26 @@ export default function LeaderboardScreen() {
 
   useEffect(() => {
     setLoading(true);
-    const q = query(collection(db, "users"), orderBy("coins", "desc"), limit(5));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const rankedUsers = snapshot.docs.map((doc, index) => ({
-        id: doc.id,
-        rank: index + 1,
-        ...doc.data(),
-      }));
-      setUsers(rankedUsers);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching leaderboard:", error);
-      setLoading(false);
-    });
+    const usersRef = firestore().collection('users');
+    const query = usersRef.orderBy('coins', 'desc').limit(5);
 
-    return () => unsub();
+    const unsubscribe = query.onSnapshot(
+      (snapshot) => {
+        const rankedUsers = snapshot.docs.map((doc, index) => ({
+          id: doc.id,
+          rank: index + 1,
+          ...doc.data(),
+        }));
+        setUsers(rankedUsers);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error fetching leaderboard:", error);
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
   }, [period]);
 
   const getMedalIcon = (rank) => {

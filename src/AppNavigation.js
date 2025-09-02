@@ -11,11 +11,12 @@ import ProfileScreen from "./screens/ProfileScreen";
 import HomeScreen from "./screens/HomeScreen";
 import UpdatesScreen from "./screens/UpdatesScreen";
 import WalletScreen from "./screens/WalletScreen";
+import MoreScreen from "./screens/MoreScreen"; // New screen
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
-// 👇 Stack for Home and its related sub-screens
+// Stack for Home and its related sub-screens
 function HomeStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -24,6 +25,18 @@ function HomeStack() {
         name="TournamentCategories"
         component={TournamentCategories}
       />
+    </Stack.Navigator>
+  );
+}
+
+// Stack for More section and its sub-screens
+function MoreStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="MoreMain" component={MoreScreen} />
+      <Stack.Screen name="Wallet" component={WalletScreen} />
+      <Stack.Screen name="Updates" component={UpdatesScreen} />
+      {/* Add more screens here as needed */}
     </Stack.Navigator>
   );
 }
@@ -56,6 +69,8 @@ export default function AppNavigation() {
             iconName = focused ? "trophy" : "trophy-outline";
           } else if (route.name === "Profile") {
             iconName = focused ? "person" : "person-outline";
+          } else if (route.name === "More") {
+            iconName = focused ? "menu" : "menu-outline";
           }
           return <Ionicons name={iconName} size={size} color={color} />;
         },
@@ -81,10 +96,10 @@ export default function AppNavigation() {
         headerShown: false,
       })}
     >
-      {/* 👇 Use HomeStack instead of HomeScreen directly */}
       <Tab.Screen name="Home" component={HomeStack} />
       <Tab.Screen name="Leaderboard" component={LeaderboardScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="More" component={MoreStack} />
     </Tab.Navigator>
   );
 }

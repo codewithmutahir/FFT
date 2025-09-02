@@ -2,10 +2,9 @@ import React, { useState, useEffect, useContext } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AuthContext } from "../AuthProvider";
-import { db } from "../../firebase";
-import { doc, getDoc, updateDoc, collection, query, where, getDocs, writeBatch } from "firebase/firestore";
-import { getAuth, updatePassword, reauthenticateWithCredential, EmailAuthProvider, signOut } from "firebase/auth";
 import { typography } from "../../theme/typography";
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
 
 export default function ProfileScreen() {
   const { user } = useContext(AuthContext);
@@ -30,8 +29,8 @@ export default function ProfileScreen() {
       const fetchProfile = async () => {
         try {
           setLoading(true);
-          const userDoc = await getDoc(doc(db, "users", user.uid));
-          if (userDoc.exists()) {
+          const userDoc = await firestore().collection('users').doc(user.uid).get();
+          if (userDoc.exists) {
             const data = userDoc.data();
             const profileData = {
               inGameName: data.inGameName || "",
@@ -58,15 +57,9 @@ export default function ProfileScreen() {
 
   const updateTournamentSlots = async (newInGameName, newInGameUID) => {
     try {
-      const tournamentsQuery = query(
-        collection(db, "active-tournaments"),
-        where("bookedSlots", "array-contains-any", [{uid: user.uid}])
-      );
+      const tournamentsSnapshot = await firestore().collection('active-tournaments').get();
       
-      const allTournamentsQuery = collection(db, "active-tournaments");
-      const tournamentsSnapshot = await getDocs(allTournamentsQuery);
-      
-      const batch = writeBatch(db);
+      const batch = firestore().batch();
       let updatedTournaments = 0;
 
       tournamentsSnapshot.forEach((doc) => {
@@ -83,7 +76,8 @@ export default function ProfileScreen() {
               updatedAt: new Date().toISOString()
             };
             
-            batch.update(doc.ref, { bookedSlots: updatedSlots });
+            const tournamentRef = firestore().collection('active-tournaments').doc(doc.id);
+            batch.update(tournamentRef, { bookedSlots: updatedSlots });
             updatedTournaments++;
           }
         }
@@ -111,7 +105,7 @@ export default function ProfileScreen() {
         inGameUID: trimmedInGameUID,
       };
       
-      await updateDoc(doc(db, "users", user.uid), updates);
+      await firestore().collection('users').doc(user.uid).update(updates);
       
       const profileChanged = originalProfile.inGameName !== trimmedInGameName || 
                            originalProfile.inGameUID !== trimmedInGameUID;
@@ -152,10 +146,14 @@ export default function ProfileScreen() {
 
     try {
       setLoading(true);
-      const auth = getAuth();
-      const credential = EmailAuthProvider.credential(user.email, currentPassword);
-      await reauthenticateWithCredential(auth.currentUser, credential);
-      await updatePassword(auth.currentUser, newPassword);
+      
+      // Reauthenticate user
+      const credential = auth.EmailAuthProvider.credential(user.email, currentPassword);
+      await auth().currentUser.reauthenticateWithCredential(credential);
+      
+      // Update password
+      await auth().currentUser.updatePassword(newPassword);
+      
       setNewPassword("");
       setCurrentPassword("");
       setShowPasswordChange(false);
@@ -178,8 +176,7 @@ export default function ProfileScreen() {
   const handleLogout = async () => {
     try {
       setLoading(true);
-      const auth = getAuth();
-      await signOut(auth);
+      await auth().signOut();
       Alert.alert("Success", "You have been logged out successfully.");
     } catch (error) {
       console.error("Logout error:", error.message);

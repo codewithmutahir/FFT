@@ -1,44 +1,74 @@
 {
   "expo": {
-    "name": "freefire-tournament",
-    "scheme": "freefire-tournament",
-    "platforms": ["ios", "android", "web"],
-    "assetBundlePatterns": ["assets/fonts/*"],
+    "name": "ProArena",
+    "scheme": "pro-arena",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "slug": "freefire-tournament",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/pro-arena-icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/pro-arena-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true,
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "supportsTablet": true
     },
     "android": {
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/pro-arena-icon.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.mutahir1212.freefiretournament",
-      "versionCode": 1
+      "versionCode": 9,
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED"
+      ],
+      "softwareKeyboardLayoutMode": "pan",
+      "allowBackup": true,
+      "jsEngine": "hermes"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/pro-arena-icon.png"
     },
     "plugins": [
       "expo-notifications",
       "expo-font",
-      "@react-native-firebase/app"
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "buildToolsVersion": "35.0.0"
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {
         "projectId": "68e16255-db3a-4ad3-8d9e-3e4f6f53caeb"
       }
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/68e16255-db3a-4ad3-8d9e-3e4f6f53caeb"
     }
   }
 }

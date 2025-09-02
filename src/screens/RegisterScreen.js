@@ -1,4 +1,4 @@
-import React, { useState, useContext, memo } from "react";
+import React, { useState, useContext, memo, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,18 +11,137 @@ import {
   ScrollView,
   Dimensions,
   Image,
+  Alert,
 } from "react-native";
 import { AuthContext } from "../AuthProvider";
 import { getFriendlyFirebaseError } from "../utils/firebaseErrors";
 import { useGoogleAuth } from "../utils/googleAuth";
-import { db } from "../../firebase";
-import { doc, setDoc } from "firebase/firestore";
+import firestore from '@react-native-firebase/firestore';
+import auth from '@react-native-firebase/auth';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import * as Device from 'expo-device';
+import * as Crypto from 'expo-crypto';
 
 const { width, height } = Dimensions.get('window');
 
-const InputField = memo(({ label, value, onChangeText, placeholder, iconName, secureTextEntry, showPasswordToggle, onTogglePassword, keyboardType = "default", ...props }) => {
+// Password strength checker component
+const PasswordStrengthIndicator = memo(({ password }) => {
+  const getPasswordStrength = (pwd) => {
+    if (!pwd) return { score: 0, label: '', color: '#E5E7EB', requirements: [] };
+    
+    let score = 0;
+    const requirements = [];
+    
+    // Length check
+    if (pwd.length >= 8) {
+      score += 1;
+      requirements.push({ met: true, text: 'At least 8 characters' });
+    } else {
+      requirements.push({ met: false, text: 'At least 8 characters' });
+    }
+    
+    // Uppercase check
+    if (/[A-Z]/.test(pwd)) {
+      score += 1;
+      requirements.push({ met: true, text: 'One uppercase letter' });
+    } else {
+      requirements.push({ met: false, text: 'One uppercase letter' });
+    }
+    
+    // Lowercase check
+    if (/[a-z]/.test(pwd)) {
+      score += 1;
+      requirements.push({ met: true, text: 'One lowercase letter' });
+    } else {
+      requirements.push({ met: false, text: 'One lowercase letter' });
+    }
+    
+    // Number check
+    if (/[0-9]/.test(pwd)) {
+      score += 1;
+      requirements.push({ met: true, text: 'One number' });
+    } else {
+      requirements.push({ met: false, text: 'One number' });
+    }
+    
+    // Special character check
+    if (/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) {
+      score += 1;
+      requirements.push({ met: true, text: 'One special character (!@#$...)' });
+    } else {
+      requirements.push({ met: false, text: 'One special character (!@#$...)' });
+    }
+    
+    let label = '';
+    let color = '#E5E7EB';
+    
+    if (score <= 1) {
+      label = 'Very Weak';
+      color = '#EF4444';
+    } else if (score === 2) {
+      label = 'Weak';
+      color = '#F97316';
+    } else if (score === 3) {
+      label = 'Fair';
+      color = '#EAB308';
+    } else if (score === 4) {
+      label = 'Good';
+      color = '#22C55E';
+    } else if (score === 5) {
+      label = 'Strong';
+      color = '#16A34A';
+    }
+    
+    return { score, label, color, requirements };
+  };
+  
+  const strength = getPasswordStrength(password);
+  const widthPercentage = (strength.score / 5) * 100;
+  
+  if (!password) return null;
+  
+  return (
+    <View style={styles.passwordStrengthContainer}>
+      <View style={styles.strengthBarContainer}>
+        <View style={[styles.strengthBar, { backgroundColor: '#E5E7EB' }]}>
+          <View 
+            style={[
+              styles.strengthBarFill, 
+              { 
+                width: `${widthPercentage}%`, 
+                backgroundColor: strength.color 
+              }
+            ]} 
+          />
+        </View>
+        <Text style={[styles.strengthLabel, { color: strength.color }]}>
+          {strength.label}
+        </Text>
+      </View>
+      
+      <View style={styles.requirementsContainer}>
+        {strength.requirements.map((req, index) => (
+          <View key={index} style={styles.requirementItem}>
+            <Ionicons 
+              name={req.met ? "checkmark-circle" : "close-circle"} 
+              size={16} 
+              color={req.met ? '#22C55E' : '#EF4444'} 
+            />
+            <Text style={[
+              styles.requirementText, 
+              { color: req.met ? '#22C55E' : '#6B7280' }
+            ]}>
+              {req.text}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+});
+
+const InputField = memo(({ label, value, onChangeText, placeholder, iconName, secureTextEntry, showPasswordToggle, onTogglePassword, keyboardType = "default", showStrength = false, ...props }) => {
   return (
     <View style={styles.inputContainer}>
       <Text style={styles.label}>{label}</Text>
@@ -59,6 +178,7 @@ const InputField = memo(({ label, value, onChangeText, placeholder, iconName, se
           </TouchableOpacity>
         )}
       </View>
+      {showStrength && <PasswordStrengthIndicator password={value} />}
     </View>
   );
 });
@@ -77,6 +197,43 @@ export default function RegisterScreen({ navigation }) {
   const [showErrors, setShowErrors] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [loading, setLoading] = useState(false);
+  const [deviceId, setDeviceId] = useState("");
+
+  // Get unique device ID
+  useEffect(() => {
+    const getDeviceId = async () => {
+      try {
+        // Create a unique device identifier
+        const deviceName = Device.deviceName || 'unknown';
+        const osName = Device.osName || 'unknown';
+        const modelName = Device.modelName || 'unknown';
+        
+        // Combine device info and create hash
+        const deviceInfo = `${deviceName}-${osName}-${modelName}-${Device.osVersion}`;
+        const hashedDeviceId = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          deviceInfo
+        );
+        
+        setDeviceId(hashedDeviceId);
+      } catch (error) {
+        console.error('Error getting device ID:', error);
+        // Fallback to random ID
+        setDeviceId(Math.random().toString(36).substr(2, 9));
+      }
+    };
+    
+    getDeviceId();
+  }, []);
+
+  const validatePassword = (pwd) => {
+    if (pwd.length < 8) return false;
+    if (!/[A-Z]/.test(pwd)) return false;
+    if (!/[a-z]/.test(pwd)) return false;
+    if (!/[0-9]/.test(pwd)) return false;
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) return false;
+    return true;
+  };
 
   const validate = () => {
     if (
@@ -94,12 +251,12 @@ export default function RegisterScreen({ navigation }) {
       setErrorText("Please enter a valid Gamer ID (email).");
       return false;
     }
-    if (password.length < 6) {
-      setErrorText("Passcode must be at least 6 characters.");
+    if (!validatePassword(password)) {
+      setErrorText("Password must be at least 8 characters with uppercase, lowercase, number, and special character.");
       return false;
     }
     if (password !== confirmPassword) {
-      setErrorText("Passcodes do not match.");
+      setErrorText("Passwords do not match.");
       return false;
     }
     if (!/^\d+$/.test(inGameUID.trim())) {
@@ -113,31 +270,146 @@ export default function RegisterScreen({ navigation }) {
     return true;
   };
 
+  // Check if device already has an account using document-based approach
+  const checkDeviceRegistration = async (deviceId) => {
+    try {
+      const deviceDoc = await firestore()
+        .collection('registered_devices')
+        .doc(deviceId)
+        .get();
+      
+      return deviceDoc.exists;
+    } catch (error) {
+      console.error('Error checking device registration:', error);
+      return false;
+    }
+  };
+
   const handleRegister = async () => {
     setShowErrors(false);
     setErrorText("");
+
     if (!validate()) {
       setShowErrors(true);
       return;
     }
+
+    if (!deviceId) {
+      setErrorText("Device verification failed. Please try again.");
+      setShowErrors(true);
+      return;
+    }
+
     try {
       setLoading(true);
-      const userCredential = await register(email.trim(), password);
+
+      // Check if device already has an account
+      const deviceAlreadyRegistered = await checkDeviceRegistration(deviceId);
+      
+      if (deviceAlreadyRegistered) {
+        Alert.alert(
+          "Device Already Registered",
+          "This device already has an account. Each device can only create one account to prevent abuse of welcome bonus.",
+          [
+            {
+              text: "Login Instead",
+              onPress: () => navigation.navigate("Login")
+            },
+            {
+              text: "Contact Support",
+              onPress: () => {
+                // You can add support email or contact method here
+                Alert.alert("Contact Support", "Email: support@yourapp.com");
+              }
+            }
+          ]
+        );
+        setLoading(false);
+        return;
+      }
+
+      // Create user account using react-native-firebase
+      const userCredential = await auth().createUserWithEmailAndPassword(
+        email.trim(),
+        password
+      );
+
+      // Check if user was created successfully
+      if (!userCredential || !userCredential.user) {
+        throw new Error("Failed to create user account");
+      }
+
       const user = userCredential.user;
-      await setDoc(doc(db, "users", user.uid), {
+
+      // Prepare user data with welcome bonus
+      const userData = {
+        uid: user.uid,
         email: email.trim(),
         inGameName: inGameName.trim(),
         inGameUID: inGameUID.trim(),
         phoneNumber: phoneNumber.trim(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        coins: 0,
+        deviceId: deviceId, // Store device ID to prevent multiple accounts
+        createdAt: firestore.FieldValue.serverTimestamp(),
+        updatedAt: firestore.FieldValue.serverTimestamp(),
+        coins: 50, // 🎉 Welcome bonus of 50 coins
         wonTournaments: 0,
-      });
-      console.log("User registered and data stored successfully!");
-    } catch (e) {
-      console.error("Registration error:", e);
-      setErrorText(getFriendlyFirebaseError(e?.code));
+        welcomeBonusReceived: true,
+        registrationIP: 'device-based', // You can enhance this with actual IP
+      };
+
+      // Store user data in Firestore
+      await firestore().collection("users").doc(user.uid).set(userData);
+
+      // Store device registration to prevent multiple accounts
+      await firestore()
+        .collection('registered_devices')
+        .doc(deviceId)
+        .set({
+          userId: user.uid,
+          email: email.trim(),
+          inGameName: inGameName.trim(),
+          registeredAt: firestore.FieldValue.serverTimestamp(),
+          deviceInfo: {
+            name: Device.deviceName || 'unknown',
+            os: Device.osName || 'unknown',
+            model: Device.modelName || 'unknown',
+            version: Device.osVersion || 'unknown'
+          }
+        });
+
+      // ✅ Update AuthContext so app has the full profile
+      register(userData);
+
+      // Show welcome message
+      Alert.alert(
+        "🎉 Welcome to ProArena!",
+        "Registration successful! You've received 50 coins as a welcome bonus. Start playing and earn more!",
+        [{ text: "Let's Play!", style: "default" }]
+      );
+
+      console.log("User registered with welcome bonus!");
+
+      // Clear form data
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
+      setInGameName("");
+      setInGameUID("");
+      setPhoneNumber("");
+
+    } catch (error) {
+      console.error("Registration error:", error);
+
+      // Handle different types of errors
+      let friendlyError = "Registration failed. Please try again.";
+
+      if (error.code) {
+        friendlyError = getFriendlyFirebaseError(error.code);
+      } else if (error.message) {
+        friendlyError = error.message;
+      }
+
+      setErrorText(friendlyError);
       setShowErrors(true);
     } finally {
       setLoading(false);
@@ -168,8 +440,8 @@ export default function RegisterScreen({ navigation }) {
         >
           {/* Welcome Section */}
           <View style={styles.welcomeSection}>
-            <Text style={styles.welcomeTitle}>Join the Game!</Text>
-            <Text style={styles.welcomeSubtitle}>Create your gamer profile</Text>
+            <Text style={styles.welcomeTitle}>Join the ProArena!</Text>
+            <Text style={styles.welcomeSubtitle}>Create your gamer profile & get 50 coins bonus! 🎉</Text>
           </View>
 
           {/* Main Card */}
@@ -185,25 +457,26 @@ export default function RegisterScreen({ navigation }) {
               autoCapitalize="none"
             />
 
-            {/* Password Input */}
+            {/* Password Input with Strength Indicator */}
             <InputField
-              label="Passcode"
+              label="Create Strong Password"
               value={password}
               onChangeText={setPassword}
-              placeholder="Create a strong passcode"
+              placeholder="Use strong password for security"
               iconName="shield-outline"
               secureTextEntry={!showPassword}
               showPasswordToggle
               onTogglePassword={() => setShowPassword(!showPassword)}
+              showStrength={true}
             />
 
             {/* Confirm Password Input */}
             <InputField
-              label="Confirm Passcode"
+              label="Confirm Password"
               value={confirmPassword}
               onChangeText={setConfirmPassword}
-              placeholder="Re-enter your passcode"
-              iconName="shield-outline"
+              placeholder="Re-enter your password"
+              iconName="shield-checkmark-outline"
               secureTextEntry={!showConfirmPassword}
               showPasswordToggle
               onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
@@ -238,6 +511,12 @@ export default function RegisterScreen({ navigation }) {
               keyboardType="phone-pad"
             />
 
+            {/* Welcome Bonus Info */}
+            <View style={styles.bonusContainer}>
+              <Ionicons name="gift-outline" size={20} color="#22C55E" />
+              <Text style={styles.bonusText}>Get 50 coins welcome bonus on registration!</Text>
+            </View>
+
             {/* Error Message */}
             {showErrors && (
               <View style={styles.errorContainer}>
@@ -263,8 +542,8 @@ export default function RegisterScreen({ navigation }) {
                   <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
                   <>
-                    <Text style={styles.registerButtonText}>Register Now</Text>
-                    <Ionicons name="play" size={20} color="#FFFFFF" />
+                    <Text style={styles.registerButtonText}>Register & Get 50 Coins</Text>
+                    <Ionicons name="gift" size={20} color="#FFFFFF" />
                   </>
                 )}
               </LinearGradient>
@@ -382,6 +661,60 @@ const styles = StyleSheet.create({
   eyeIcon: {
     padding: 4,
   },
+  // Password Strength Styles
+  passwordStrengthContainer: {
+    marginTop: 12,
+  },
+  strengthBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  strengthBar: {
+    height: 6,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 3,
+    flex: 1,
+    marginRight: 12,
+    overflow: 'hidden',
+  },
+  strengthBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  strengthLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    minWidth: 60,
+  },
+  requirementsContainer: {
+    paddingLeft: 8,
+  },
+  requirementItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  requirementText: {
+    fontSize: 12,
+    marginLeft: 8,
+  },
+  bonusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#22C55E',
+  },
+  bonusText: {
+    marginLeft: 8,
+    color: '#22C55E',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   errorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -424,49 +757,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     marginRight: 8,
-  },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E5E7EB',
-  },
-  dividerText: {
-    marginHorizontal: 16,
-    color: '#6B7280',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
-  googleIcon: {
-    width: 24,
-    height: 24,
-    marginRight: 12,
-  },
-  googleButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
   },
   loginContainer: {
     flexDirection: 'row',

@@ -1,12 +1,6 @@
 // AuthProvider.js
 import React, { createContext, useState, useEffect } from "react";
-import {
-  onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut
-} from "firebase/auth";
-import { auth } from "../firebase";
+import auth from "@react-native-firebase/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const AuthContext = createContext();
@@ -16,7 +10,7 @@ export const AuthProvider = ({ children }) => {
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (usr) => {
+    const unsubscribe = auth().onAuthStateChanged(async (usr) => {
       try {
         if (usr) {
           const userData = { uid: usr.uid, email: usr.email };
@@ -37,15 +31,20 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const register = (email, password) =>
-    createUserWithEmailAndPassword(auth, email, password);
+    auth().createUserWithEmailAndPassword(email, password);
 
   const login = (email, password) =>
-    signInWithEmailAndPassword(auth, email, password);
+    auth().signInWithEmailAndPassword(email, password);
 
   const logout = async () => {
-    await signOut(auth);
-    await AsyncStorage.removeItem("user"); // Ensure local data is cleared
-    setUser(null);
+    try {
+      await auth().signOut();
+      await AsyncStorage.removeItem("user"); // Ensure local data is cleared
+      setUser(null);
+    } catch (error) {
+      console.error("Logout error:", error);
+      throw error;
+    }
   };
 
   return (

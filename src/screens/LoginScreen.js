@@ -144,7 +144,7 @@ export default function LoginScreen({ navigation }) {
           <View style={styles.contentContainer}>
             {/* Welcome Section */}
             <View style={styles.welcomeSection}>
-              <Text style={styles.welcomeTitle}>BOOOYAHH!!!</Text>
+              <Text style={styles.welcomeTitle}>ProArena</Text>
               <Text style={styles.welcomeSubtitle}>Log in to start your adventure</Text>
             </View>
 
@@ -216,7 +216,7 @@ export default function LoginScreen({ navigation }) {
               <View style={styles.registerContainer}>
                 <Text style={styles.registerText}>New to the game? </Text>
                 <TouchableOpacity onPress={() => navigation.navigate("Register")}>
-                  <Text style={styles.registerLink}>Join Now</Text>
+                  <Text style={styles.registerLink}>Join ProArena</Text>
                 </TouchableOpacity>
               </View>
             </View>

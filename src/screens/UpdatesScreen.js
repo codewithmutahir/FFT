@@ -7,14 +7,7 @@ import {
   TouchableOpacity,
   Animated,
 } from "react-native";
-import { db } from "../../firebase";
-import {
-  collection,
-  onSnapshot,
-  doc,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import firestore from "@react-native-firebase/firestore";
 import { AuthContext } from "../AuthProvider";
 import { useFocusEffect } from "@react-navigation/native";
 import { typography } from "../../theme/typography";
@@ -59,22 +52,22 @@ export default function UpdatesScreen({ navigation }) {
   const [updates, setUpdates] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!user) {
-      console.log("No user logged in, skipping updates fetch");
-      return;
-    }
+useEffect(() => {
+  if (!user) {
+    console.log("No user logged in, skipping updates fetch");
+    return;
+  }
 
-    const q = collection(db, "active-tournaments");
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        const userUpdates = snapshot.docs
-          .filter((doc) => {
+  const unsubscribe = firestore()
+    .collection('active-tournaments')
+    .onSnapshot(
+      querySnapshot => {
+        const userUpdates = querySnapshot.docs
+          .filter(doc => {
             const data = doc.data();
-            return data.bookedSlots?.some((slot) => slot.uid === user.uid);
+            return data.bookedSlots?.some(slot => slot.uid === user.uid);
           })
-          .filter((doc) => {
+          .filter(doc => {
             const data = doc.data();
             // Only show tournaments that have actual updates (roomId or pass)
             if (!data.roomId && !data.pass) {
@@ -86,8 +79,8 @@ export default function UpdatesScreen({ navigation }) {
             let updateTime = 0;
 
             try {
-              if (typeof data.updatedAt === "string") {
-                const cleanDateString = data.updatedAt.replace(" UTC+5", "");
+              if (typeof data.updatedAt === 'string') {
+                const cleanDateString = data.updatedAt.replace(' UTC+5', '');
                 const parsedDate = new Date(cleanDateString);
                 if (!isNaN(parsedDate)) {
                   updateTime = parsedDate.getTime();
@@ -96,67 +89,67 @@ export default function UpdatesScreen({ navigation }) {
                 updateTime = data.updatedAt.toDate().getTime();
               }
             } catch (error) {
-              console.error("Error parsing timestamp for tournament", doc.id, error);
+              console.error('Error parsing timestamp for tournament', doc.id, error);
               return false; // Hide if we can't parse the timestamp
             }
 
             // Only show updates from the last 1 hour
             return updateTime > oneHourAgo;
           })
-          .map((doc) => {
+          .map(doc => {
             const data = doc.data();
-            let formattedTimestamp = "Unknown time";
+            let formattedTimestamp = 'Unknown time';
             try {
-              if (typeof data.updatedAt === "string") {
-                const cleanDateString = data.updatedAt.replace(" UTC+5", "");
+              if (typeof data.updatedAt === 'string') {
+                const cleanDateString = data.updatedAt.replace(' UTC+5', '');
                 const parsedDate = new Date(cleanDateString);
                 if (!isNaN(parsedDate)) {
-                  formattedTimestamp = parsedDate.toLocaleString("en-US", {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    second: "2-digit",
+                  formattedTimestamp = parsedDate.toLocaleString('en-US', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
                     hour12: true,
                   });
                 }
               } else if (data.updatedAt && data.updatedAt.toDate) {
                 formattedTimestamp = data.updatedAt
                   .toDate()
-                  .toLocaleString("en-US", {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    second: "2-digit",
+                  .toLocaleString('en-US', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
                     hour12: true,
                   });
-                }
+              }
             } catch (error) {
-              console.error("Error parsing timestamp for tournament", doc.id, error);
+              console.error('Error parsing timestamp for tournament', doc.id, error);
             }
 
             return {
               id: doc.id,
               name: data.name,
-              roomId: data.roomId || "Not available",
-              pass: data.pass || "Not available",
+              roomId: data.roomId || 'Not available',
+              pass: data.pass || 'Not available',
               timestamp: formattedTimestamp,
             };
           });
         setUpdates(userUpdates);
         setLoading(false);
       },
-      (error) => {
-        console.error("Error fetching updates:", error.message);
+      error => {
+        console.error('Error fetching updates:', error);
         setLoading(false);
       }
     );
 
-    return () => unsub();
-  }, [user]);
+  return () => unsubscribe();
+}, [user]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -168,8 +161,9 @@ export default function UpdatesScreen({ navigation }) {
 
   const markUpdatesAsRead = async () => {
     try {
-      await updateDoc(doc(db, "users", user.uid), {
-        lastReadUpdates: serverTimestamp(),
+      const userRef = firestore().doc(`users/${user.uid}`);
+      await userRef.update({
+        lastReadUpdates: firestore.FieldValue.serverTimestamp()
       });
       console.log("Updates marked as read");
     } catch (error) {
