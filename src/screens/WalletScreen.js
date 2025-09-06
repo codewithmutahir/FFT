@@ -1,4 +1,5 @@
-import { useState, useEffect, useContext } from "react";
+import { useState, useEffect, useContext, useCallback } from "react";
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -10,6 +11,7 @@ import {
   TouchableOpacity,
   Linking,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import firestore from "@react-native-firebase/firestore";
 import Ionicons from "react-native-vector-icons/Ionicons";
@@ -34,6 +36,8 @@ export default function WalletScreen({ navigation }) {
   const [transactions, setTransactions] = useState([]);
   const [error, setError] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [userCoins, setUserCoins] = useState(0); // Keep for withdrawal validation
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Deposit account details
   const DEPOSIT_ACCOUNT = {
@@ -55,6 +59,46 @@ export default function WalletScreen({ navigation }) {
 
   const AUTH_ADMIN_ID = "e1N3TDFz2fd7VF4Ynfct3RnUDBC3";
 
+  // Fetch user coins for withdrawal validation
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) {
+        console.log("No user logged in, skipping coins fetch");
+        setUserCoins(0);
+        return;
+      }
+
+      console.log("Setting up real-time listener for user coins:", user.uid);
+
+      const unsubscribeCoins = firestore()
+        .collection('users')
+        .doc(user.uid)
+        .onSnapshot(
+          (docSnapshot) => {
+            console.log("Snapshot data:", docSnapshot.data());
+            if (docSnapshot.exists) {
+              const userData = docSnapshot.data();
+              const coins = userData.coins || 0;
+              console.log("User coins updated:", coins);
+              setUserCoins(coins);
+            } else {
+              console.log("User document not found");
+              setUserCoins(0);
+            }
+          },
+          (error) => {
+            console.error("Error fetching user coins:", error);
+            setError("Failed to load coin balance: " + error.message);
+          }
+        );
+
+      return () => {
+        console.log("Cleaning up coins listener");
+        unsubscribeCoins();
+      };
+    }, [user])
+  );
+
   useEffect(() => {
     if (!user) {
       console.log("No user logged in, skipping transaction listener");
@@ -65,7 +109,6 @@ export default function WalletScreen({ navigation }) {
     const isAdmin = user.uid === AUTH_ADMIN_ID;
 
     if (isAdmin) {
-      // Admin sees ALL transactions (pending, approved, rejected)
       transactionsQuery = firestore()
         .collection('transactions')
         .where('status', 'in', ['pending', 'approved', 'rejected']);
@@ -73,7 +116,6 @@ export default function WalletScreen({ navigation }) {
         "Admin query: Looking for all transactions (pending, approved, rejected)"
       );
     } else {
-      // Normal users see only their approved, rejected, or failed transactions
       transactionsQuery = firestore()
         .collection('transactions')
         .where('userId', '==', user.uid)
@@ -165,9 +207,8 @@ export default function WalletScreen({ navigation }) {
     }
   };
 
-  // Copy account number to clipboard (optional feature)
+  // Copy account number to clipboard
   const copyAccountNumber = () => {
-    // If you have Clipboard API available, you can use it
     Alert.alert(
       "Account Number",
       DEPOSIT_ACCOUNT.number,
@@ -177,7 +218,7 @@ export default function WalletScreen({ navigation }) {
     );
   };
 
-  // Handle deposit with Cloudinary upload 
+  // Handle deposit with Cloudinary upload
   const handleDeposit = async () => {
     if (!depositAmount || isNaN(depositAmount) || Number(depositAmount) <= 0) {
       setError("Please enter a valid amount");
@@ -188,6 +229,7 @@ export default function WalletScreen({ navigation }) {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       const formData = new FormData();
       formData.append("file", {
@@ -199,6 +241,7 @@ export default function WalletScreen({ navigation }) {
 
       const response = await axios.post(CLOUDINARY_UPLOAD_URL, formData, {
         headers: { "Content-Type": "multipart/form-data" },
+        timeout: 10000,
       });
 
       console.log("Cloudinary Upload Response:", response.data);
@@ -211,7 +254,7 @@ export default function WalletScreen({ navigation }) {
         amount: Number(depositAmount),
         proof: proofUrl,
         status: "pending",
-        timestamp: firestore.Timestamp.now(), 
+        timestamp: firestore.Timestamp.now(),
       };
 
       console.log("Creating transaction document:", transactionData);
@@ -230,6 +273,8 @@ export default function WalletScreen({ navigation }) {
         error.response?.data?.error?.message || error.message;
       console.error("Deposit Error:", errorMessage);
       setError("Failed to submit deposit: " + errorMessage);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -259,28 +304,13 @@ export default function WalletScreen({ navigation }) {
       return;
     }
 
+    if (userCoins < Number(withdrawAmount)) {
+      setError(`You don't have enough coins. Current balance: ${userCoins} coins`);
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      // FIXED: Use React Native Firebase syntax
-      const userDoc = await firestore()
-        .collection("users")
-        .doc(user.uid)
-        .get();
-
-      if (!userDoc.exists) {
-        setError("User record not found");
-        return;
-      }
-
-      const userData = userDoc.data();
-      const currentCoins = userData.coins || 0;
-
-      // Check if user has enough coins
-      if (currentCoins < Number(withdrawAmount)) {
-        setError("You don't have enough coins to withdraw");
-        return;
-      }
-
-      // Create withdrawal transaction
       const transactionData = {
         userId: user.uid,
         type: "withdraw",
@@ -290,12 +320,11 @@ export default function WalletScreen({ navigation }) {
         accountName: accountName.trim(),
         proof: null,
         status: "pending",
-        timestamp: firestore.Timestamp.now(), // FIXED: Use firestore.Timestamp.now()
+        timestamp: firestore.Timestamp.now(),
       };
 
       console.log("Creating withdrawal transaction:", transactionData);
 
-      // FIXED: Use React Native Firebase syntax
       await firestore()
         .collection("transactions")
         .add(transactionData);
@@ -310,23 +339,22 @@ export default function WalletScreen({ navigation }) {
     } catch (error) {
       console.error("Withdrawal error:", error);
       setError("Failed to submit withdrawal: " + error.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  // Admin approve transaction - FIXED FOR REACT NATIVE FIREBASE
+  // Admin approve transaction
   const handleApproveTransaction = async (transaction) => {
     try {
       console.log("Approving transaction:", transaction.id);
 
-      // FIXED: Use React Native Firebase syntax
       await firestore()
         .collection("transactions")
         .doc(transaction.id)
         .update({ status: "approved" });
 
-      // Only add coins for deposits
       if (transaction.type === "deposit") {
-        // FIXED: Use React Native Firebase syntax with increment
         await firestore()
           .collection("users")
           .doc(transaction.userId)
@@ -338,7 +366,6 @@ export default function WalletScreen({ navigation }) {
           `Approved deposit ${transaction.id}, added ${transaction.amount} coins to user ${transaction.userId}`
         );
       } else if (transaction.type === "withdraw") {
-        // For withdrawals, deduct coins when approved
         await firestore()
           .collection("users")
           .doc(transaction.userId)
@@ -358,12 +385,11 @@ export default function WalletScreen({ navigation }) {
     }
   };
 
-  // Admin reject transaction - FIXED FOR REACT NATIVE FIREBASE
+  // Admin reject transaction
   const handleRejectTransaction = async (transaction) => {
     try {
       console.log("Rejecting transaction:", transaction.id);
 
-      // FIXED: Use React Native Firebase syntax
       await firestore()
         .collection("transactions")
         .doc(transaction.id)
@@ -381,11 +407,10 @@ export default function WalletScreen({ navigation }) {
     }
   };
 
-  // Debug function to show all transactions (for admin) - FIXED
+  // Debug function to show all transactions (for admin)
   const showAllTransactions = async () => {
     if (user?.uid === AUTH_ADMIN_ID) {
       try {
-        // FIXED: Use React Native Firebase syntax
         const snapshot = await firestore()
           .collection("transactions")
           .get();
@@ -411,7 +436,6 @@ export default function WalletScreen({ navigation }) {
         User: {item.inGameName} (UID: {item.inGameUID})
       </Text>
       
-      {/* Show account details for withdrawal transactions */}
       {item.type === "withdraw" && (
         <>
           {item.accountNumber && (
@@ -464,7 +488,6 @@ export default function WalletScreen({ navigation }) {
       {item.adminNote && (
         <Text style={styles.transactionText}>Note: {item.adminNote}</Text>
       )}
-      {/* Show approve/reject buttons ONLY for admin AND ONLY for pending transactions */}
       {user && user.uid === AUTH_ADMIN_ID && item.status === "pending" && (
         <View style={styles.buttonContainer}>
           <TouchableOpacity
@@ -494,6 +517,7 @@ export default function WalletScreen({ navigation }) {
           <Text style={styles.backButtonText}>← Back</Text>
         </TouchableOpacity>
       </View>
+
       {activeSection === null ? (
         <View style={styles.cardContainer}>
           <TouchableOpacity
@@ -558,7 +582,6 @@ export default function WalletScreen({ navigation }) {
                 Deposit Funds
               </Text>
 
-              {/* Deposit Account Information Card */}
               <View style={styles.accountInfoCard}>
                 <Text style={styles.accountInfoTitle}>
                   <Ionicons name="information-circle" size={20} color="#ff4500" />
@@ -607,8 +630,10 @@ export default function WalletScreen({ navigation }) {
                     alignItems: "center",
                     justifyContent: "center",
                   },
+                  isSubmitting && { opacity: 0.6 },
                 ]}
                 onPress={pickImage}
+                disabled={isSubmitting}
               >
                 <Ionicons
                   name="image-outline"
@@ -626,10 +651,15 @@ export default function WalletScreen({ navigation }) {
               {error ? <Text style={styles.error}>{error}</Text> : null}
 
               <TouchableOpacity
-                style={typography.button}
+                style={[typography.button, isSubmitting && { opacity: 0.6 }]}
                 onPress={handleDeposit}
+                disabled={isSubmitting}
               >
-                <Text style={typography.buttonText}>Submit Deposit</Text>
+                {isSubmitting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={typography.buttonText}>Submit Deposit</Text>
+                )}
               </TouchableOpacity>
             </View>
           )}
@@ -645,6 +675,7 @@ export default function WalletScreen({ navigation }) {
               >
                 Withdraw Funds
               </Text>
+
               <TextInput
                 placeholder="Enter amount (min 500 coins)"
                 placeholderTextColor={"#6c6c6cff"}
@@ -689,10 +720,15 @@ export default function WalletScreen({ navigation }) {
 
               {error ? <Text style={styles.error}>{error}</Text> : null}
               <TouchableOpacity
-                style={typography.button}
+                style={[typography.button, isSubmitting && { opacity: 0.6 }]}
                 onPress={handleWithdraw}
+                disabled={isSubmitting}
               >
-                <Text style={typography.buttonText}>Submit Withdrawal</Text>
+                {isSubmitting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={typography.buttonText}>Submit Withdrawal</Text>
+                )}
               </TouchableOpacity>
             </View>
           )}
@@ -710,7 +746,6 @@ export default function WalletScreen({ navigation }) {
                   " (Pending, Approved, Rejected)"}
               </Text>
               
-              {/* Debug button for admin */}
               {user?.uid === AUTH_ADMIN_ID && (
                 <TouchableOpacity
                   style={styles.debugButton}
@@ -763,6 +798,49 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
   },
+  balanceContainer: {
+    paddingHorizontal: 15,
+    paddingBottom: 20,
+  },
+  balanceCard: {
+    backgroundColor: "#2a2a2a",
+    borderRadius: 12,
+    padding: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#ff4500",
+    elevation: 4,
+  },
+  balanceTextContainer: {
+    marginLeft: 15,
+    flex: 1,
+  },
+  balanceLabel: {
+    color: "#ccc",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  balanceAmount: {
+    color: "#ff4500",
+    fontSize: 24,
+    fontWeight: "bold",
+    marginTop: 2,
+  },
+  balanceInfo: {
+    backgroundColor: "#2a2a2a",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: "#ff4500",
+  },
+  balanceInfoText: {
+    color: "#ff4500",
+    fontSize: 16,
+    fontWeight: "bold",
+    textAlign: "center",
+  },
   cardContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   card: {
     backgroundColor: "#2a2a2a",
@@ -790,7 +868,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     marginBottom: 10,
   },
-  // Account Info Card Styles
   accountInfoCard: {
     backgroundColor: "#2a2a2a",
     borderRadius: 12,

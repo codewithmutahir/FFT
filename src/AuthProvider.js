@@ -1,6 +1,7 @@
 // AuthProvider.js
 import React, { createContext, useState, useEffect } from "react";
 import auth from "@react-native-firebase/auth";
+import firestore from "@react-native-firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const AuthContext = createContext();
@@ -8,6 +9,7 @@ export const AuthContext = createContext();
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
+  const [coins, setCoins] = useState(0); // 🔹 coins state add kiya
 
   useEffect(() => {
     const unsubscribe = auth().onAuthStateChanged(async (usr) => {
@@ -16,8 +18,24 @@ export const AuthProvider = ({ children }) => {
           const userData = { uid: usr.uid, email: usr.email };
           setUser(userData);
           await AsyncStorage.setItem("user", JSON.stringify(userData));
+
+          // 🔹 Firestore coins listener lagao
+          const unsubscribeCoins = firestore()
+            .collection("users")
+            .doc(usr.uid)
+            .onSnapshot((doc) => {
+              if (doc.exists) {
+                setCoins(doc.data().coins || 0);
+              } else {
+                setCoins(0);
+              }
+            });
+
+          // cleanup for coins listener
+          return () => unsubscribeCoins();
         } else {
           setUser(null);
+          setCoins(0); // logout pe reset
           await AsyncStorage.removeItem("user");
         }
       } catch (error) {
@@ -39,8 +57,9 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await auth().signOut();
-      await AsyncStorage.removeItem("user"); // Ensure local data is cleared
+      await AsyncStorage.removeItem("user");
       setUser(null);
+      setCoins(0); // logout ke sath coins clear
     } catch (error) {
       console.error("Logout error:", error);
       throw error;
@@ -49,7 +68,7 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, initializing, register, login, logout }}
+      value={{ user, coins, setCoins, initializing, register, login, logout }}
     >
       {children}
     </AuthContext.Provider>

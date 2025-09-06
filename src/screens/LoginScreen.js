@@ -10,10 +10,11 @@ import {
   Platform,
   ScrollView,
   Dimensions,
+  Alert,
 } from "react-native";
 import { AuthContext } from "../AuthProvider";
-import { sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "../../firebase";
+// Import from react-native-firebase instead of firebase/auth
+import auth from '@react-native-firebase/auth';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { getFriendlyFirebaseError } from "../utils/firebaseErrors";
@@ -72,7 +73,7 @@ export default function LoginScreen({ navigation }) {
 
   const validate = () => {
     if (!email.trim() || !password.trim()) {
-      setErrorText("Gamer ID and Passcode are required.");
+      setErrorText("Email and Password are required.");
       return false;
     }
     const ok = /\S+@\S+\.\S+/.test(email.trim());
@@ -102,17 +103,93 @@ export default function LoginScreen({ navigation }) {
   };
 
   const handleForgotPassword = async () => {
+    // Clear any existing errors
+    setShowErrors(false);
+    setErrorText("");
+    
+    // Validate email first
     if (!email.trim()) {
-      setErrorText("Please enter your Gamer ID to reset Passcode.");
+      setErrorText("Please enter your email address to reset your password.");
       setShowErrors(true);
       return;
     }
+
+    // Validate email format
+    const emailRegex = /\S+@\S+\.\S+/;
+    if (!emailRegex.test(email.trim())) {
+      setErrorText("Please enter a valid email address.");
+      setShowErrors(true);
+      return;
+    }
+
     setResetLoading(true);
+    
     try {
-      await sendPasswordResetEmail(auth, email.trim());
-      alert("Passcode reset link sent to your email.");
+      console.log("Attempting to send password reset email to:", email.trim());
+      
+      // Use react-native-firebase syntax
+      await auth().sendPasswordResetEmail(email.trim());
+
+      console.log("Password reset email sent successfully");
+      
+      // Show success message
+      Alert.alert(
+        "Reset Email Sent! 📧",
+        `We've sent a password reset link to ${email.trim()}. Please check your email (including spam folder) and follow the instructions to reset your password.`,
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              // Clear the form or keep email for user convenience
+              setPassword("");
+              setShowErrors(false);
+              setErrorText("");
+            }
+          }
+        ]
+      );
+
     } catch (error) {
-      setErrorText(getFriendlyFirebaseError(error?.code));
+      console.error("Password reset error:", error);
+      console.error("Error code:", error?.code);
+      console.error("Error message:", error?.message);
+      
+      let friendlyMessage = "";
+      
+      switch (error?.code) {
+        case 'auth/user-not-found':
+          friendlyMessage = "No account found with this email address. Please check your email or create a new account.";
+          break;
+        case 'auth/invalid-email':
+          friendlyMessage = "Please enter a valid email address.";
+          break;
+        case 'auth/too-many-requests':
+          friendlyMessage = "Too many password reset attempts. Please wait a few minutes before trying again.";
+          break;
+        case 'auth/network-request-failed':
+          friendlyMessage = "Network error. Please check your internet connection and try again.";
+          break;
+        case 'auth/configuration-not-found':
+          friendlyMessage = "Password reset is not configured. Please contact support.";
+          break;
+        case 'auth/missing-email':
+          friendlyMessage = "Please enter your email address.";
+          break;
+        case 'auth/invalid-continue-uri':
+          friendlyMessage = "Invalid configuration. Please contact support.";
+          break;
+        case 'auth/unauthorized-continue-uri':
+          friendlyMessage = "Unauthorized domain. Please contact support.";
+          break;
+        default:
+          // Try to use your existing error handler first
+          friendlyMessage = getFriendlyFirebaseError(error?.code) || 
+                           error?.message || 
+                           "Something went wrong sending the reset email. Please try again or contact support if the problem persists.";
+          break;
+      }
+      
+      setErrorText(friendlyMessage);
       setShowErrors(true);
     } finally {
       setResetLoading(false);
@@ -175,9 +252,19 @@ export default function LoginScreen({ navigation }) {
                 disabled={resetLoading}
                 style={styles.forgotPasswordContainer}
               >
-                <Text style={styles.forgotPasswordText}>
-                  {resetLoading ? "Sending..." : "Forgot Passcode?"}
+                <Text style={[
+                  styles.forgotPasswordText,
+                  resetLoading && styles.forgotPasswordTextDisabled
+                ]}>
+                  {resetLoading ? "Sending..." : "Forgot Password?"}
                 </Text>
+                {resetLoading && (
+                  <ActivityIndicator 
+                    size="small" 
+                    color="#FF6B35" 
+                    style={styles.resetLoader}
+                  />
+                )}
               </TouchableOpacity>
 
               {/* Error Message */}
@@ -335,11 +422,19 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     marginTop: -8,
     marginBottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   forgotPasswordText: {
     color: '#FF6B35',
     fontSize: 14,
     fontWeight: '600',
+  },
+  forgotPasswordTextDisabled: {
+    opacity: 0.6,
+  },
+  resetLoader: {
+    marginLeft: 8,
   },
   errorContainer: {
     flexDirection: 'row',
@@ -356,6 +451,7 @@ const styles = StyleSheet.create({
     color: '#FF6B35',
     fontSize: 14,
     fontWeight: '500',
+    flex: 1,
   },
   loginButton: {
     borderRadius: 12,

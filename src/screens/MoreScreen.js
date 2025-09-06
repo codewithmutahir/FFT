@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,10 +11,14 @@ import {
   TextInput,
   Dimensions,
   Animated,
+  ActivityIndicator,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { typography } from "../../theme/typography";
-import firestore from '@react-native-firebase/firestore';
+import firestore from "@react-native-firebase/firestore";
+import NetInfo from "@react-native-community/netinfo";
+import appJson from "../../app.json";
 
 const { width } = Dimensions.get("window");
 
@@ -25,30 +29,48 @@ export default function MoreScreen({ navigation }) {
   const [feedbackType, setFeedbackType] = useState("general");
   const [rating, setRating] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState("idle");
   const [modalAnimation] = useState(new Animated.Value(0));
+  const [menuItems, setMenuItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const toggleExpand = (id) => {
-    setExpandedItem((prev) => (prev === id ? null : id));
+  // Check network connectivity
+  const checkNetworkConnectivity = async () => {
+    try {
+      const netInfo = await NetInfo.fetch();
+      return netInfo.isConnected && netInfo.isInternetReachable;
+    } catch (error) {
+      console.error("Network check failed:", error);
+      return false;
+    }
   };
 
-  const openLink = (url, title) => {
+  // Define callback functions
+  const toggleExpand = useCallback((id) => {
+    setExpandedItem((prev) => (prev === id ? null : id));
+  }, []);
+
+  const openLink = useCallback((url, title) => {
     Alert.alert(title, "This will open in your browser", [
       { text: "Cancel", style: "cancel" },
       { text: "Open", onPress: () => Linking.openURL(url) },
     ]);
-  };
+  }, []);
 
-  const openFeedbackModal = () => {
+  const openFeedbackModal = useCallback(() => {
+    console.log("Opening feedback modal"); // Debug log
     setFeedbackModalVisible(true);
+    setSubmitStatus("idle");
     Animated.spring(modalAnimation, {
       toValue: 1,
       useNativeDriver: true,
       tension: 100,
       friction: 8,
     }).start();
-  };
+  }, [modalAnimation]);
 
-  const closeFeedbackModal = () => {
+  const closeFeedbackModal = useCallback(() => {
     Animated.timing(modalAnimation, {
       toValue: 0,
       duration: 200,
@@ -58,21 +80,221 @@ export default function MoreScreen({ navigation }) {
       setFeedback("");
       setRating(0);
       setFeedbackType("general");
+      setSubmitStatus("idle");
     });
-  };
+  }, [modalAnimation]);
 
-  const submitFeedback = async () => {
-    if (!feedback.trim()) {
-      Alert.alert("Error", "Please write your feedback before submitting.");
+  // Handle menu item press - simplified approach
+  const handleMenuItemPress = useCallback((item) => {
+    console.log("Menu item pressed:", item.title, "Type:", item.type, "Target:", item.navigationTarget);
+    
+    switch (item.type) {
+      case "navigate":
+        if (item.navigationTarget) {
+          navigation.navigate(item.navigationTarget);
+        }
+        break;
+
+      case "action":
+        switch (item.navigationTarget) {
+          case "feedback":
+            console.log("Feedback action triggered");
+            openFeedbackModal();
+            break;
+          case "share":
+            Alert.alert(
+              "Share App",
+              "Tell your friends about our amazing gaming app!",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Share",
+                  onPress: () => Linking.openURL("https://yourwebsite.com/download"),
+                },
+              ]
+            );
+            break;
+          case "contact":
+            openLink("mailto:support@yourwebsite.com", "Contact Support");
+            break;
+          default:
+            Alert.alert(
+              item.title,
+              item.subtitle || "This action is not yet implemented",
+              [{ text: "OK", style: "default" }]
+            );
+            break;
+        }
+        break;
+
+      case "toggle":
+        toggleExpand(item.id);
+        break;
+
+      case "link":
+        if (item.navigationTarget) {
+          openLink(item.navigationTarget, item.title);
+        }
+        break;
+
+      default:
+        Alert.alert("Coming Soon", "This feature will be available soon!");
+        break;
+    }
+  }, [navigation, openFeedbackModal, toggleExpand, openLink]);
+
+  const getDefaultMenuItems = useCallback(() => [
+    {
+      id: "wallet",
+      title: "Wallet",
+      subtitle: "Deposit & Withdraw funds",
+      icon: "wallet-outline",
+      color: "#08CB00",
+      type: "navigate",
+      navigationTarget: "Wallet",
+    },
+    {
+      id: "updates",
+      title: "Updates & News",
+      subtitle: "Latest app updates and announcements",
+      icon: "newspaper-outline",
+      color: "#33A1E0",
+      type: "navigate",
+      navigationTarget: "Updates",
+    },
+    {
+      id: "feedback",
+      title: "Send Feedback",
+      subtitle: "Share your thoughts with us",
+      icon: "mail-outline",
+      color: "#FF6B35",
+      type: "action",
+      navigationTarget: "feedback",
+    },
+    {
+      id: "privacy",
+      title: "Privacy Policy",
+      subtitle: "How we handle your data",
+      icon: "shield-checkmark-outline",
+      color: "#9C27B0",
+      type: "toggle",
+      content: "We respect your privacy. Your data is securely stored and never shared with third parties without consent.",
+    },
+    {
+      id: "terms",
+      title: "Terms & Conditions",
+      subtitle: "Rules and guidelines",
+      icon: "document-text-outline",
+      color: "#FF9800",
+      type: "toggle",
+      content: "By using this app, you agree to follow the rules, respect other users, and not misuse the service.",
+    },
+    {
+      id: "support",
+      title: "Help & Support",
+      subtitle: "Get help or contact us",
+      icon: "help-circle-outline",
+      color: "#4CAF50",
+      type: "link",
+      navigationTarget: "mailto:mutharsoomro13@gmail.com",
+    },
+    {
+      id: "share",
+      title: "Share App",
+      subtitle: "Invite your friends",
+      icon: "share-social-outline",
+      color: "#ff4500",
+      type: "action",
+      navigationTarget: "share",
+    },
+  ], []);
+
+  // Load menu items from Firebase
+  useEffect(() => {
+    let unsubscribe = null;
+
+    const loadMenuItems = () => {
+      try {
+        unsubscribe = firestore()
+          .collection("moreScreenItems")
+          .doc("config")
+          .onSnapshot(
+            (doc) => {
+              try {
+                if (doc.exists) {
+                  const data = doc.data();
+                  if (data?.items) {
+                    const visibleItems = data.items
+                      .filter((item) => item.isVisible)
+                      .sort((a, b) => a.order - b.order);
+                    setMenuItems(visibleItems);
+                    console.log("Loaded items from Firebase:", visibleItems.map(i => ({title: i.title, type: i.type, target: i.navigationTarget})));
+                  } else {
+                    const defaultItems = getDefaultMenuItems();
+                    setMenuItems(defaultItems);
+                    console.log("Using default items (no admin data)");
+                  }
+                } else {
+                  const defaultItems = getDefaultMenuItems();
+                  setMenuItems(defaultItems);
+                  console.log("Using default items (doc doesn't exist)");
+                }
+                setLoading(false);
+                setError(null);
+              } catch (err) {
+                console.error("Error processing menu items:", err);
+                setError("Failed to load menu items");
+                setMenuItems(getDefaultMenuItems());
+                setLoading(false);
+              }
+            },
+            (err) => {
+              console.error("Firebase listener error:", err);
+              setError("Failed to connect to server");
+              setMenuItems(getDefaultMenuItems());
+              setLoading(false);
+            }
+          );
+      } catch (error) {
+        console.error("Failed to set up Firebase listener:", error);
+        setError("Failed to initialize connection");
+        setMenuItems(getDefaultMenuItems());
+        setLoading(false);
+      }
+    };
+
+    loadMenuItems();
+
+    return () => {
+      if (unsubscribe) {
+        try {
+          unsubscribe();
+        } catch (error) {
+          console.error("Error cleaning up Firebase listener:", error);
+        }
+      }
+    };
+  }, [getDefaultMenuItems]);
+
+  // Enhanced feedback submission
+  const submitFeedback = useCallback(async (retryCount = 0) => {
+    if (!feedback.trim() || rating === 0) {
+      Alert.alert("Error", "Please fill all fields before submitting.");
       return;
     }
 
-    if (rating === 0) {
-      Alert.alert("Error", "Please provide a rating before submitting.");
+    const isConnected = await checkNetworkConnectivity();
+    if (!isConnected) {
+      Alert.alert(
+        "No Internet Connection",
+        "Please check your internet connection and try again.",
+        [{ text: "OK", style: "default" }]
+      );
       return;
     }
 
     setIsSubmitting(true);
+    setSubmitStatus("submitting");
 
     try {
       const feedbackData = {
@@ -80,66 +302,50 @@ export default function MoreScreen({ navigation }) {
         rating: rating,
         message: feedback.trim(),
         timestamp: firestore.FieldValue.serverTimestamp(),
-        status: "unread",
-        createdAt: new Date().toISOString(),
+        platform: Platform.OS,
+        appVersion: appJson.expo.version,
+        deviceInfo: {
+          platform: Platform.OS,
+          version: Platform.Version,
+        },
       };
 
-      // Save to Firestore first
-      const docRef = await firestore()
-        .collection('feedback')
-        .add(feedbackData);
+      await firestore().collection("feedback").add(feedbackData);
 
-      // Send email using FormSubmit (Free service)
-      const formData = new FormData();
-      formData.append('_next', 'https://your-website.com/thank-you'); // Optional redirect page
-      formData.append('_subject', `App Feedback - ${feedbackType.charAt(0).toUpperCase() + feedbackType.slice(1)}`);
-      formData.append('_captcha', 'false'); // Disable captcha
-      formData.append('_template', 'table'); // Use table template for better formatting
+      setSubmitStatus("success");
+      setIsSubmitting(false);
+      closeFeedbackModal();
+      Alert.alert(
+        "Thank You! 🎉",
+        "Your feedback has been submitted successfully!",
+        [{ text: "OK", style: "default" }]
+      );
+    } catch (error) {
+      console.error("Feedback submission error:", error);
+      setIsSubmitting(false);
+      setSubmitStatus("error");
+
+      let errorMessage = "Something went wrong. Please try again.";
       
-      // Feedback details
-      formData.append('Feedback_Type', feedbackType.charAt(0).toUpperCase() + feedbackType.slice(1));
-      formData.append('Rating', `${rating}/5 stars`);
-      formData.append('Message', feedback.trim());
-      formData.append('Date', new Date().toLocaleDateString());
-      formData.append('Time', new Date().toLocaleTimeString());
-      formData.append('Feedback_ID', docRef.id);
-      formData.append('App_Name', 'ProArena Gaming App');
-
-      // Send to FormSubmit
-      const emailResponse = await fetch('https://formsubmit.co/mutharsoomro13@gmail.com', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (emailResponse.ok) {
-        setIsSubmitting(false);
-        closeFeedbackModal();
-        
-        Alert.alert(
-          "Thank You! 🎉",
-          "Your feedback has been sent successfully. We appreciate your input and will review it soon.",
-          [{ text: "OK", style: "default" }]
-        );
-      } else {
-        throw new Error('Failed to send email');
+      if (error.code === "permission-denied") {
+        errorMessage = "Permission denied. Please check your account.";
+      } else if (error.code === "unavailable") {
+        errorMessage = "Service temporarily unavailable. Please try again later.";
+      } else if (error.code === "deadline-exceeded") {
+        errorMessage = "Request timed out. Please check your connection.";
       }
 
-    } catch (error) {
-      setIsSubmitting(false);
-      console.error("Feedback submission error:", error);
-      
-      Alert.alert(
-        "Submission Failed",
-        "Unable to send feedback at the moment. Please check your internet connection and try again.",
-        [
-          { text: "Try Again", onPress: submitFeedback },
-          { text: "Cancel", style: "cancel" }
-        ]
-      );
+      Alert.alert("Submission Failed", errorMessage, [
+        { text: "Cancel", style: "cancel" },
+        ...(retryCount < 2 ? [{
+          text: "Try Again",
+          onPress: () => submitFeedback(retryCount + 1),
+        }] : [])
+      ]);
     }
-  };
+  }, [feedback, rating, feedbackType, closeFeedbackModal]);
 
-  const renderStars = () => {
+  const renderStars = useCallback(() => {
     return (
       <View style={styles.starsContainer}>
         {[1, 2, 3, 4, 5].map((star) => (
@@ -147,6 +353,7 @@ export default function MoreScreen({ navigation }) {
             key={star}
             onPress={() => setRating(star)}
             style={styles.starButton}
+            activeOpacity={0.7}
           >
             <Ionicons
               name={star <= rating ? "star" : "star-outline"}
@@ -157,103 +364,20 @@ export default function MoreScreen({ navigation }) {
         ))}
       </View>
     );
-  };
+  }, [rating]);
 
-  const feedbackTypes = [
+  const feedbackTypes = useMemo(() => [
     { id: "general", label: "General Feedback", icon: "chatbubble-outline" },
     { id: "bug", label: "Report Bug", icon: "bug-outline" },
     { id: "feature", label: "Feature Request", icon: "bulb-outline" },
     { id: "complaint", label: "Complaint", icon: "warning-outline" },
-  ];
+  ], []);
 
-  const menuItems = [
-    {
-      id: "wallet",
-      title: "Wallet",
-      subtitle: "Deposit & Withdraw funds",
-      icon: "wallet-outline",
-      color: "#08CB00",
-      action: () => navigation.navigate("Wallet"),
-      type: "navigate",
-    },
-    {
-      id: "updates",
-      title: "Updates & News",
-      subtitle: "Latest app updates and announcements",
-      icon: "newspaper-outline",
-      color: "#33A1E0",
-      action: () => navigation.navigate("Updates"),
-      type: "navigate",
-    },
-    {
-      id: "feedback",
-      title: "Send Feedback",
-      subtitle: "Share your thoughts with us",
-      icon: "mail-outline",
-      color: "#FF6B35",
-      action: openFeedbackModal,
-      type: "action",
-    },
-    {
-      id: "privacy",
-      title: "Privacy Policy",
-      subtitle: "How we handle your data",
-      icon: "shield-checkmark-outline",
-      color: "#9C27B0",
-      action: () => toggleExpand("privacy"),
-      type: "toggle",
-      content: `We respect your privacy. Your data is securely stored and never shared with third parties without consent. This is a simplified example, you can add more detailed content here.`,
-    },
-    {
-      id: "terms",
-      title: "Terms & Conditions",
-      subtitle: "Rules and guidelines",
-      icon: "document-text-outline",
-      color: "#FF9800",
-      action: () => toggleExpand("terms"),
-      type: "toggle",
-      content: `By using this app, you agree to follow the rules, respect other users, and not misuse the service. Add your full terms here.`,
-    },
-    {
-      id: "support",
-      title: "Help & Support",
-      subtitle: "Get help or contact us",
-      icon: "help-circle-outline",
-      color: "#4CAF50",
-      action: () =>
-        openLink("mailto:mutharsoomro13@gmail.com", "Contact Support"),
-      type: "link",
-    },
-    {
-      id: "share",
-      title: "Share App",
-      subtitle: "Invite your friends",
-      icon: "share-social-outline",
-      color: "#ff4500",
-      action: () => {
-        Alert.alert(
-          "Share App",
-          "Tell your friends about our amazing gaming app!",
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Share",
-              onPress: () => {
-                Linking.openURL("https://yourwebsite.com/download");
-              },
-            },
-          ]
-        );
-      },
-      type: "action",
-    },
-  ];
-
-  const renderMenuItem = (item) => (
+  const renderMenuItem = useCallback((item) => (
     <View key={item.id} style={styles.menuItemWrapper}>
       <TouchableOpacity
         style={styles.menuItem}
-        onPress={item.action}
+        onPress={() => handleMenuItemPress(item)}
         activeOpacity={0.7}
       >
         <View style={styles.menuItemContent}>
@@ -281,7 +405,6 @@ export default function MoreScreen({ navigation }) {
         </View>
       </TouchableOpacity>
 
-      {/* Expanded content */}
       {item.type === "toggle" && expandedItem === item.id && (
         <View style={styles.expandedContent}>
           <Text style={[styles.expandedText, typography.cardText]}>
@@ -290,7 +413,33 @@ export default function MoreScreen({ navigation }) {
         </View>
       )}
     </View>
-  );
+  ), [expandedItem, typography, handleMenuItemPress]);
+
+  const retryConnection = useCallback(() => {
+    setError(null);
+    setLoading(true);
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#FF6B35" />
+        <Text style={styles.loadingText}>Loading menu items...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <Ionicons name="warning-outline" size={48} color="#FF6B35" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={retryConnection}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <>
@@ -308,7 +457,7 @@ export default function MoreScreen({ navigation }) {
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>© 2025 ProArena</Text>
-          <Text style={styles.footerText}>Version 1.0.0</Text>
+          <Text style={styles.footerText}>Version 1.0.1</Text>
         </View>
       </ScrollView>
 
@@ -324,31 +473,24 @@ export default function MoreScreen({ navigation }) {
             style={[
               styles.modalContainer,
               {
-                transform: [
-                  {
-                    scale: modalAnimation.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.9, 1],
-                    }),
-                  },
-                ],
+                transform: [{
+                  scale: modalAnimation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.9, 1],
+                  }),
+                }],
                 opacity: modalAnimation,
               },
             ]}
           >
-            {/* Modal Header */}
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Send Feedback</Text>
-              <TouchableOpacity
-                onPress={closeFeedbackModal}
-                style={styles.closeButton}
-              >
+              <TouchableOpacity onPress={closeFeedbackModal} style={styles.closeButton}>
                 <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.modalContent}>
-              {/* Feedback Type Selection */}
+            <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
               <Text style={styles.sectionTitle}>Feedback Type</Text>
               <View style={styles.feedbackTypes}>
                 {feedbackTypes.map((type) => (
@@ -359,6 +501,7 @@ export default function MoreScreen({ navigation }) {
                       feedbackType === type.id && styles.typeButtonActive,
                     ]}
                     onPress={() => setFeedbackType(type.id)}
+                    activeOpacity={0.7}
                   >
                     <Ionicons
                       name={type.icon}
@@ -377,7 +520,6 @@ export default function MoreScreen({ navigation }) {
                 ))}
               </View>
 
-              {/* Rating */}
               <Text style={styles.sectionTitle}>Rate Your Experience</Text>
               {renderStars()}
               {rating > 0 && (
@@ -390,7 +532,6 @@ export default function MoreScreen({ navigation }) {
                 </Text>
               )}
 
-              {/* Feedback Text */}
               <Text style={styles.sectionTitle}>Your Feedback</Text>
               <TextInput
                 style={styles.feedbackInput}
@@ -401,9 +542,14 @@ export default function MoreScreen({ navigation }) {
                 value={feedback}
                 onChangeText={setFeedback}
                 textAlignVertical="top"
+                maxLength={1000}
+                editable={!isSubmitting}
               />
 
-              {/* Submit Button */}
+              <Text style={styles.characterCount}>
+                {feedback.length}/1000 characters
+              </Text>
+
               <TouchableOpacity
                 style={[
                   styles.submitButton,
@@ -414,15 +560,13 @@ export default function MoreScreen({ navigation }) {
                 activeOpacity={0.8}
               >
                 {isSubmitting ? (
-                  <Text style={styles.submitButtonText}>Sending...</Text>
+                  <>
+                    <ActivityIndicator size="small" color="#fff" style={styles.submitIcon} />
+                    <Text style={styles.submitButtonText}>Submitting...</Text>
+                  </>
                 ) : (
                   <>
-                    <Ionicons
-                      name="send"
-                      size={20}
-                      color="#fff"
-                      style={styles.submitIcon}
-                    />
+                    <Ionicons name="send" size={20} color="#fff" style={styles.submitIcon} />
                     <Text style={styles.submitButtonText}>Send Feedback</Text>
                   </>
                 )}
@@ -440,6 +584,34 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#1a1a1a",
   },
+  centerContent: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    color: "#fff",
+    fontSize: 16,
+    marginTop: 16,
+  },
+  errorText: {
+    color: "#fff",
+    fontSize: 16,
+    marginTop: 16,
+    textAlign: "center",
+    paddingHorizontal: 32,
+  },
+  retryButton: {
+    backgroundColor: "#FF6B35",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  retryButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
   header: {
     padding: 20,
     paddingTop: 60,
@@ -447,7 +619,6 @@ const styles = StyleSheet.create({
   headerTitle: {
     color: "#fff",
     fontSize: 28,
-    fontWeight: "bold",
     marginBottom: 5,
     textAlign: "center",
   },
@@ -518,7 +689,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 4,
   },
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.8)",
@@ -611,9 +781,15 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     minHeight: 120,
-    marginBottom: 20,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: "#444",
+  },
+  characterCount: {
+    color: "#888",
+    fontSize: 12,
+    textAlign: "right",
+    marginBottom: 20,
   },
   submitButton: {
     backgroundColor: "#FF6B35",

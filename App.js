@@ -142,12 +142,12 @@ function CustomHeader({ navigation, user }) {
 function FloatingWhatsAppButton() {
   const handleWhatsAppPress = () => {
     // 🔹 Yahan apna WhatsApp group link daalo
-    const whatsappGroupLink = "https://chat.whatsapp.com/YOUR_GROUP_INVITE_LINK";
+    const whatsappChannelLink = "https://whatsapp.com/channel/0029VbBWnSyEFeXi4djQt21y";
     
-    Linking.canOpenURL(whatsappGroupLink)
+    Linking.canOpenURL(whatsappChannelLink)
       .then(supported => {
         if (supported) {
-          Linking.openURL(whatsappGroupLink);
+          Linking.openURL(whatsappChannelLink);
         } else {
           Alert.alert("Error", "WhatsApp is not installed on your device");
         }
@@ -376,7 +376,7 @@ const styles = StyleSheet.create({
   // ✅ NEW - Floating WhatsApp Button Styles
   whatsappFloat: {
     position: 'absolute',
-    bottom: 60,
+    bottom: 90,
     right: 20,
     width: 60,
     height: 60,
