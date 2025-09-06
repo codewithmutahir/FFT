@@ -70,7 +70,7 @@ export default function WalletScreen({ navigation }) {
 
       console.log("Setting up real-time listener for user coins:", user.uid);
 
-      const unsubscribeCoins = firestore()
+      const unsubscribeCoins = firestore()  
         .collection('users')
         .doc(user.uid)
         .onSnapshot(

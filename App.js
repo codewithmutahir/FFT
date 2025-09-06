@@ -43,72 +43,67 @@ Notifications.setNotificationHandler({
   }),
 });
 
-function CustomHeader({ navigation, user }) {
+function CustomHeader({ navigation }) {
   const insets = useSafeAreaInsets();
-  const [coins, setCoins] = useState(0);
+  const { user, coins } = useContext(AuthContext); // 🔹 global coins
   const [hasUnreadUpdates, setHasUnreadUpdates] = useState(false);
 
   useEffect(() => {
     if (user) {
-      const unsubUser = firestore()
-        .collection("users")
-        .doc(user.uid)
-        .onSnapshot((userSnapshot) => {
-          const userData = userSnapshot.data();
-          setCoins(userData?.coins || 0);
+      const unsubUpdates = firestore()
+        .collection("active-tournaments")
+        .onSnapshot((snapshot) => {
+          const unread = snapshot.docs.some((docSnap) => {
+            const data = docSnap.data();
 
-          const lastReadUpdates = userData?.lastReadUpdates?.toDate?.();
+            const hasBookedSlot = data.bookedSlots?.some(
+              (slot) => slot.uid === user.uid
+            );
 
-          const unsubUpdates = firestore()
-            .collection("active-tournaments")
-            .onSnapshot((snapshot) => {
-              const unread = snapshot.docs.some((docSnap) => {
-                const data = docSnap.data();
-                const hasBookedSlot = data.bookedSlots?.some(
-                  (slot) => slot.uid === user.uid
-                );
-                const hasNewUpdate =
-                  (data.roomId && data.roomId !== "Not released yet") ||
-                  (data.pass && data.pass !== "Not released yet");
+            const hasNewUpdate =
+              (data.roomId && data.roomId !== "Not released yet") ||
+              (data.pass && data.pass !== "Not released yet");
 
-                const updateTime =
-                  (data.updatedAt?.toDate
-                    ? data.updatedAt.toDate()
-                    : data.updatedAt
-                    ? new Date(data.updatedAt)
-                    : null) ||
-                  (data.createdAt?.toDate
-                    ? data.createdAt.toDate()
-                    : data.createdAt
-                    ? new Date(data.createdAt)
-                    : null) ||
-                  new Date();
+            const updateTime =
+              (data.updatedAt?.toDate
+                ? data.updatedAt.toDate()
+                : data.updatedAt
+                ? new Date(data.updatedAt)
+                : null) ||
+              (data.createdAt?.toDate
+                ? data.createdAt.toDate()
+                : data.createdAt
+                ? new Date(data.createdAt)
+                : null) ||
+              new Date();
 
-                const isUnread =
-                  !lastReadUpdates || (updateTime && updateTime > lastReadUpdates);
+            const lastReadUpdates = data?.lastReadUpdates?.toDate?.();
+            const isUnread =
+              !lastReadUpdates || (updateTime && updateTime > lastReadUpdates);
 
-                return hasBookedSlot && hasNewUpdate && isUnread;
-              });
+            return hasBookedSlot && hasNewUpdate && isUnread;
+          });
 
-              setHasUnreadUpdates(unread);
-            });
-
-          return () => unsubUpdates();
+          setHasUnreadUpdates(unread);
         });
 
-      return () => unsubUser();
+      return () => unsubUpdates();
     }
   }, [user]);
 
   return (
     <View style={[styles.header, { paddingTop: insets.top }]}>
+      {/* Left side */}
       <View style={styles.headerLeft}>
-       <Image
-         source={require('./assets/pro-arena-icon.png')}
-         style={styles.AppLogo}
-       />
+        <Image
+          source={require("./assets/pro-arena-icon.png")}
+          style={styles.AppLogo}
+        />
       </View>
+
+      {/* Right side */}
       <View style={styles.headerRight}>
+        {/* Coins Button */}
         <TouchableOpacity
           onPress={() => navigation.navigate("Wallet")}
           style={styles.coinsContainer}
@@ -120,9 +115,12 @@ function CustomHeader({ navigation, user }) {
             }}
             style={styles.coinIcon}
           />
-          <Text style={[styles.coinsText, typography.cardText]}>{coins} Coins</Text>
+          <Text style={[styles.coinsText, typography.cardText]}>
+            {coins} Coins
+          </Text>
         </TouchableOpacity>
 
+        {/* Notifications */}
         <TouchableOpacity
           onPress={() => navigation.navigate("Updates")}
           style={styles.updatesContainer}
@@ -137,6 +135,7 @@ function CustomHeader({ navigation, user }) {
     </View>
   );
 }
+
 
 // ✅ NEW - Floating WhatsApp Button Component
 function FloatingWhatsAppButton() {
