@@ -1,4 +1,4 @@
-import React, { useState, useContext, memo, useEffect } from "react";
+import React, { useState, useContext, memo } from "react";
 import {
   View,
   Text,
@@ -10,7 +10,6 @@ import {
   Platform,
   ScrollView,
   Dimensions,
-  Image,
   Alert,
 } from "react-native";
 import { AuthContext } from "../AuthProvider";
@@ -20,8 +19,6 @@ import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import * as Device from 'expo-device';
-import * as Crypto from 'expo-crypto';
 
 const { width, height } = Dimensions.get('window');
 
@@ -197,34 +194,6 @@ export default function RegisterScreen({ navigation }) {
   const [showErrors, setShowErrors] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [loading, setLoading] = useState(false);
-  const [deviceId, setDeviceId] = useState("");
-
-  // Get unique device ID
-  useEffect(() => {
-    const getDeviceId = async () => {
-      try {
-        // Create a unique device identifier
-        const deviceName = Device.deviceName || 'unknown';
-        const osName = Device.osName || 'unknown';
-        const modelName = Device.modelName || 'unknown';
-        
-        // Combine device info and create hash
-        const deviceInfo = `${deviceName}-${osName}-${modelName}-${Device.osVersion}`;
-        const hashedDeviceId = await Crypto.digestStringAsync(
-          Crypto.CryptoDigestAlgorithm.SHA256,
-          deviceInfo
-        );
-        
-        setDeviceId(hashedDeviceId);
-      } catch (error) {
-        console.error('Error getting device ID:', error);
-        // Fallback to random ID
-        setDeviceId(Math.random().toString(36).substr(2, 9));
-      }
-    };
-    
-    getDeviceId();
-  }, []);
 
   const validatePassword = (pwd) => {
     if (pwd.length < 8) return false;
@@ -270,21 +239,6 @@ export default function RegisterScreen({ navigation }) {
     return true;
   };
 
-  // Check if device already has an account using document-based approach
-  const checkDeviceRegistration = async (deviceId) => {
-    try {
-      const deviceDoc = await firestore()
-        .collection('registered_devices')
-        .doc(deviceId)
-        .get();
-      
-      return deviceDoc.exists;
-    } catch (error) {
-      console.error('Error checking device registration:', error);
-      return false;
-    }
-  };
-
   const handleRegister = async () => {
     setShowErrors(false);
     setErrorText("");
@@ -294,39 +248,8 @@ export default function RegisterScreen({ navigation }) {
       return;
     }
 
-    if (!deviceId) {
-      setErrorText("Device verification failed. Please try again.");
-      setShowErrors(true);
-      return;
-    }
-
     try {
       setLoading(true);
-
-      // Check if device already has an account
-      const deviceAlreadyRegistered = await checkDeviceRegistration(deviceId);
-      
-      if (deviceAlreadyRegistered) {
-        Alert.alert(
-          "Device Already Registered",
-          "This device already has an account. Each device can only create one account to prevent abuse of welcome bonus.",
-          [
-            {
-              text: "Login Instead",
-              onPress: () => navigation.navigate("Login")
-            },
-            {
-              text: "Contact Support",
-              onPress: () => {
-                // You can add support email or contact method here
-                Alert.alert("Contact Support", "Email: support@yourapp.com");
-              }
-            }
-          ]
-        );
-        setLoading(false);
-        return;
-      }
 
       // Create user account using react-native-firebase
       const userCredential = await auth().createUserWithEmailAndPassword(
@@ -348,42 +271,23 @@ export default function RegisterScreen({ navigation }) {
         inGameName: inGameName.trim(),
         inGameUID: inGameUID.trim(),
         phoneNumber: phoneNumber.trim(),
-        deviceId: deviceId, // Store device ID to prevent multiple accounts
         createdAt: firestore.FieldValue.serverTimestamp(),
         updatedAt: firestore.FieldValue.serverTimestamp(),
-        coins: 50, // 🎉 Welcome bonus of 50 coins
+        coins: 50, // Welcome bonus coins
         wonTournaments: 0,
         welcomeBonusReceived: true,
-        registrationIP: 'device-based', // You can enhance this with actual IP
       };
 
       // Store user data in Firestore
       await firestore().collection("users").doc(user.uid).set(userData);
 
-      // Store device registration to prevent multiple accounts
-      await firestore()
-        .collection('registered_devices')
-        .doc(deviceId)
-        .set({
-          userId: user.uid,
-          email: email.trim(),
-          inGameName: inGameName.trim(),
-          registeredAt: firestore.FieldValue.serverTimestamp(),
-          deviceInfo: {
-            name: Device.deviceName || 'unknown',
-            os: Device.osName || 'unknown',
-            model: Device.modelName || 'unknown',
-            version: Device.osVersion || 'unknown'
-          }
-        });
-
-      // ✅ Update AuthContext so app has the full profile
+      // Update AuthContext so app has the full profile
       register(userData);
 
       // Show welcome message
       Alert.alert(
         "🎉 Welcome to ProArena!",
-        "Registration successful! You've received 50 coins as a welcome bonus. Start playing and earn more!",
+        "Registration successful! Start playing tournaments and earning coins.",
         [{ text: "Let's Play!", style: "default" }]
       );
 
@@ -542,7 +446,7 @@ export default function RegisterScreen({ navigation }) {
                   <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
                   <>
-                    <Text style={styles.registerButtonText}>Register & Get 50 Coins</Text>
+                    <Text style={styles.registerButtonText}>Register</Text>
                     <Ionicons name="gift" size={20} color="#FFFFFF" />
                   </>
                 )}
