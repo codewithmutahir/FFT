@@ -264,7 +264,7 @@ export default function RegisterScreen({ navigation }) {
 
       const user = userCredential.user;
 
-      // Prepare user data with welcome bonus
+      // Prepare user data
       const userData = {
         uid: user.uid,
         email: email.trim(),
@@ -273,9 +273,7 @@ export default function RegisterScreen({ navigation }) {
         phoneNumber: phoneNumber.trim(),
         createdAt: firestore.FieldValue.serverTimestamp(),
         updatedAt: firestore.FieldValue.serverTimestamp(),
-        coins: 50, // Welcome bonus coins
         wonTournaments: 0,
-        welcomeBonusReceived: true,
       };
 
       // Store user data in Firestore
@@ -287,11 +285,11 @@ export default function RegisterScreen({ navigation }) {
       // Show welcome message
       Alert.alert(
         "🎉 Welcome to ProArena!",
-        "Registration successful! Start playing tournaments and earning coins.",
+        "Registration successful! Start playing tournaments.",
         [{ text: "Let's Play!", style: "default" }]
       );
 
-      console.log("User registered with welcome bonus!");
+      console.log("User registered successfully!");
 
       // Clear form data
       setEmail("");
@@ -345,7 +343,7 @@ export default function RegisterScreen({ navigation }) {
           {/* Welcome Section */}
           <View style={styles.welcomeSection}>
             <Text style={styles.welcomeTitle}>Join the ProArena!</Text>
-            <Text style={styles.welcomeSubtitle}>Create your gamer profile & get 50 coins bonus! 🎉</Text>
+            <Text style={styles.welcomeSubtitle}>Create your gamer profile and start competing! 🎮</Text>
           </View>
 
           {/* Main Card */}
@@ -415,12 +413,6 @@ export default function RegisterScreen({ navigation }) {
               keyboardType="phone-pad"
             />
 
-            {/* Welcome Bonus Info */}
-            <View style={styles.bonusContainer}>
-              <Ionicons name="gift-outline" size={20} color="#22C55E" />
-              <Text style={styles.bonusText}>Get 50 coins welcome bonus on registration!</Text>
-            </View>
-
             {/* Error Message */}
             {showErrors && (
               <View style={styles.errorContainer}>
@@ -447,7 +439,7 @@ export default function RegisterScreen({ navigation }) {
                 ) : (
                   <>
                     <Text style={styles.registerButtonText}>Register</Text>
-                    <Ionicons name="gift" size={20} color="#FFFFFF" />
+                    <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
                   </>
                 )}
               </LinearGradient>
@@ -602,22 +594,6 @@ const styles = StyleSheet.create({
   requirementText: {
     fontSize: 12,
     marginLeft: 8,
-  },
-  bonusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: '#22C55E',
-  },
-  bonusText: {
-    marginLeft: 8,
-    color: '#22C55E',
-    fontSize: 14,
-    fontWeight: '600',
   },
   errorContainer: {
     flexDirection: 'row',

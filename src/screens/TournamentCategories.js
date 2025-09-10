@@ -12,7 +12,6 @@ import firestore from "@react-native-firebase/firestore";
 import { typography } from "../../theme/typography";
 import ShimmerPlaceHolder from "react-native-shimmer-placeholder";
 
-
 const SkeletonLoader = () => {
   return (
     <View style={styles.skeletonCard}>
@@ -30,8 +29,31 @@ export default function TournamentCategories({ navigation }) {
   const [categories, setCategories] = useState([]);
   const [activeTournaments, setActiveTournaments] = useState({});
   const [loading, setLoading] = useState(true);
+  const [imageAspectRatios, setImageAspectRatios] = useState({});
 
- useEffect(() => {
+  // Function to get image dimensions and calculate aspect ratio
+  const getImageAspectRatio = (imageUrl, itemId) => {
+    Image.getSize(
+      imageUrl,
+      (width, height) => {
+        const aspectRatio = width / height;
+        setImageAspectRatios(prev => ({
+          ...prev,
+          [itemId]: aspectRatio
+        }));
+      },
+      (error) => {
+        console.log('Error getting image size:', error);
+        // Fallback to default aspect ratio
+        setImageAspectRatios(prev => ({
+          ...prev,
+          [itemId]: 16/9 // Default 16:9 aspect ratio
+        }));
+      }
+    );
+  };
+
+  useEffect(() => {
     // Fetch tournament categories with real-time listener
     const unsubCategories = firestore()
       .collection("tournament-categories")
@@ -41,6 +63,14 @@ export default function TournamentCategories({ navigation }) {
             id: doc.id,
             ...doc.data(),
           }));
+          
+          // Get aspect ratios for all images
+          categoryList.forEach(category => {
+            if (category.imageUrl) {
+              getImageAspectRatio(category.imageUrl, category.id);
+            }
+          });
+          
           setCategories(categoryList);
         },
         (error) => {
@@ -52,7 +82,7 @@ export default function TournamentCategories({ navigation }) {
     // Fetch active tournaments with real-time listener
     const unsubTournaments = firestore()
       .collection("active-tournaments")
-      .where("isActive", "==", true) // Filter active tournaments at query level
+      .where("isActive", "==", true)
       .onSnapshot(
         (snapshot) => {
           const tournaments = snapshot.docs.map((doc) => ({
@@ -60,7 +90,6 @@ export default function TournamentCategories({ navigation }) {
             ...doc.data(),
           }));
 
-          // Group tournaments by categoryId
           const grouped = tournaments.reduce((acc, tournament) => {
             const categoryId = tournament.categoryId;
             if (!acc[categoryId]) acc[categoryId] = [];
@@ -77,7 +106,6 @@ export default function TournamentCategories({ navigation }) {
         }
       );
 
-    // Cleanup function to unsubscribe from listeners
     return () => {
       unsubCategories();
       unsubTournaments();
@@ -100,6 +128,14 @@ export default function TournamentCategories({ navigation }) {
   const renderCategory = ({ item }) => {
     const activeTournamentsCount = activeTournaments[item.id]?.length || 0;
     const hasActiveTournaments = activeTournamentsCount > 0;
+    
+    // Calculate dynamic height based on aspect ratio, with min/max constraints
+    const aspectRatio = imageAspectRatios[item.id] || 16/9;
+    const baseWidth = 350; // Approximate card width
+    let imageHeight = baseWidth / aspectRatio;
+    
+    // Constrain height between 150 and 220 pixels
+    imageHeight = Math.max(150, Math.min(220, imageHeight));
 
     return (
       <View
@@ -108,7 +144,14 @@ export default function TournamentCategories({ navigation }) {
           !hasActiveTournaments && styles.inactiveCard,
         ]}
       >
-        <Image source={{ uri: item.imageUrl }} style={styles.categoryImage} />
+        <Image 
+          source={{ uri: item.imageUrl }} 
+          style={[
+            styles.categoryImage, 
+            { height: imageHeight }
+          ]}
+          resizeMode="cover" // This ensures the image covers the area without distortion
+        />
         <View style={styles.categoryContent}>
           <Text style={[typography.h1]}>{item.name}</Text>
           <Text style={styles.categoryDescription}>{item.description}</Text>
@@ -133,14 +176,16 @@ export default function TournamentCategories({ navigation }) {
           <TouchableOpacity
             style={[
               styles.exploreButton,
-              !hasActiveTournaments && styles.disabledButton, typography.buttonText
+              !hasActiveTournaments && styles.disabledButton,
             ]}
             onPress={() => handleCategoryPress(item)}
             disabled={!hasActiveTournaments}
           >
             <Text
               style={[
-                !hasActiveTournaments && styles.disabledButtonText, typography.buttonText
+                styles.exploreButtonText,
+                !hasActiveTournaments && styles.disabledButtonText,
+                typography.buttonText
               ]}
             >
               {hasActiveTournaments
@@ -205,13 +250,12 @@ const styles = StyleSheet.create({
   },
   categoryImage: {
     width: "100%",
-    height: 180,
+    // Height is now dynamic, set in renderCategory
     resizeMode: "cover",
   },
   categoryContent: {
     padding: 20,
   },
-
   categoryDescription: {
     color: "#cccccc",
     fontSize: 16,
