@@ -34,12 +34,12 @@ import * as Notifications from "expo-notifications";
 import { useFonts } from "expo-font";
 import useNetwork from "./src/components/useNetwork.js";
 import { typography } from "./theme/typography.js";
-import NetInfo from '@react-native-community/netinfo';
+import NetInfo from "@react-native-community/netinfo";
 
 LogBox.ignoreLogs([
-  'Setting a timer',
-  'AsyncStorage has been extracted',
-  'Non-serializable values were found in the navigation state',
+  "Setting a timer",
+  "AsyncStorage has been extracted",
+  "Non-serializable values were found in the navigation state",
 ]);
 
 const Stack = createNativeStackNavigator();
@@ -53,24 +53,40 @@ Notifications.setNotificationHandler({
 });
 
 const ErrorFallback = ({ error, resetError }) => (
-  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#1a1a1a' }}>
-    <Text style={{ color: '#fff', fontSize: 18, marginBottom: 10 }}>Something went wrong!</Text>
-    <Text style={{ color: '#aaa', fontSize: 14, textAlign: 'center', marginBottom: 20 }}>
+  <View
+    style={{
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 20,
+      backgroundColor: "#1a1a1a",
+    }}
+  >
+    <Text style={{ color: "#fff", fontSize: 18, marginBottom: 10 }}>
+      Something went wrong!
+    </Text>
+    <Text
+      style={{
+        color: "#aaa",
+        fontSize: 14,
+        textAlign: "center",
+        marginBottom: 20,
+      }}
+    >
       {error.toString()}
     </Text>
     <TouchableOpacity
       style={{
-        backgroundColor: '#ff4500',
+        backgroundColor: "#ff4500",
         padding: 12,
-        borderRadius: 8
+        borderRadius: 8,
       }}
       onPress={resetError}
     >
-      <Text style={{ color: '#fff', fontWeight: 'bold' }}>Try Again</Text>
+      <Text style={{ color: "#fff", fontWeight: "bold" }}>Try Again</Text>
     </TouchableOpacity>
   </View>
 );
-
 
 function CustomHeader({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -86,33 +102,36 @@ function CustomHeader({ navigation }) {
         (snapshot) => {
           try {
             if (!snapshot || !snapshot.docs) {
-              console.log('❌ Invalid snapshot or docs');
+              console.log("❌ Invalid snapshot or docs");
               setHasUnreadUpdates(false);
               return;
             }
 
-            const validDocs = snapshot.docs.filter(doc => doc && doc.exists);
+            const validDocs = snapshot.docs.filter((doc) => doc && doc.exists);
 
             if (validDocs.length === 0) {
-              console.log('✅ No valid tournament documents found');
+              console.log("✅ No valid tournament documents found");
               setHasUnreadUpdates(false);
               return;
             }
 
-            console.log(`🔍 Checking ${validDocs.length} tournaments for updates`);
+            console.log(
+              `🔍 Checking ${validDocs.length} tournaments for updates`
+            );
 
             const unread = validDocs.some((doc) => {
               try {
                 const data = doc.data();
-                
+
                 if (!data) {
-                  console.log('⚠️ Empty document data:', doc.id);
+                  console.log("⚠️ Empty document data:", doc.id);
                   return false;
                 }
 
                 // Check if user has booked slot
-                const hasBookedSlot = Array.isArray(data.bookedSlots) && 
-                  data.bookedSlots.some(slot => slot?.uid === user.uid);
+                const hasBookedSlot =
+                  Array.isArray(data.bookedSlots) &&
+                  data.bookedSlots.some((slot) => slot?.uid === user.uid);
 
                 if (!hasBookedSlot) {
                   return false;
@@ -124,12 +143,15 @@ function CustomHeader({ navigation }) {
                 }
 
                 // ✅ ADD TIME FILTER (same as UpdatesScreen)
-                const oneHourAgo = Date.now() - (60 * 60 * 1000);
+                const oneHourAgo = Date.now() - 60 * 60 * 1000;
                 let updateTime = 0;
 
                 try {
-                  if (typeof data.updatedAt === 'string') {
-                    const cleanDateString = data.updatedAt.replace(' UTC+5', '');
+                  if (typeof data.updatedAt === "string") {
+                    const cleanDateString = data.updatedAt.replace(
+                      " UTC+5",
+                      ""
+                    );
                     const parsedDate = new Date(cleanDateString);
                     if (!isNaN(parsedDate)) {
                       updateTime = parsedDate.getTime();
@@ -138,7 +160,11 @@ function CustomHeader({ navigation }) {
                     updateTime = data.updatedAt.toDate().getTime();
                   }
                 } catch (error) {
-                  console.error('Error parsing timestamp for tournament', doc.id, error);
+                  console.error(
+                    "Error parsing timestamp for tournament",
+                    doc.id,
+                    error
+                  );
                   return false;
                 }
 
@@ -147,33 +173,32 @@ function CustomHeader({ navigation }) {
                   return false;
                 }
 
-                // ✅ Now check if it's unread (simplified logic)
-                // Since UpdatesScreen marks as read in users collection,
-                // we can use a simpler approach here
-                return true; // If it passes all above checks, show dot
+                const lastRead =
+                  data.lastReadUpdates?.toDate?.()?.getTime() || 0;
+                return updateTime > lastRead;
 
+                
               } catch (docError) {
-                console.error('❌ Error processing doc:', doc.id, docError);
+                console.error("❌ Error processing doc:", doc.id, docError);
                 return false;
               }
             });
 
-            console.log('✅ Updates check complete. Has unread:', unread);
+            console.log("✅ Updates check complete. Has unread:", unread);
             setHasUnreadUpdates(unread);
-
           } catch (snapshotError) {
-            console.error('❌ Error processing snapshot:', snapshotError);
+            console.error("❌ Error processing snapshot:", snapshotError);
             setHasUnreadUpdates(false);
           }
         },
         (error) => {
-          console.error('❌ Firestore listener error:', error);
+          console.error("❌ Firestore listener error:", error);
           setHasUnreadUpdates(false);
         }
       );
 
     return () => {
-      console.log('🧹 Cleaning up updates listener');
+      console.log("🧹 Cleaning up updates listener");
       if (unsubUpdates) {
         unsubUpdates();
       }
@@ -225,23 +250,23 @@ function CustomHeader({ navigation }) {
   );
 }
 
-
 // ✅ NEW - Floating WhatsApp Button Component
 function FloatingWhatsAppButton() {
   const handleWhatsAppPress = () => {
     // 🔹 Yahan apna WhatsApp group link daalo
-    const whatsappChannelLink = "https://whatsapp.com/channel/0029VbBWnSyEFeXi4djQt21y";
-    
+    const whatsappChannelLink =
+      "https://whatsapp.com/channel/0029VbBWnSyEFeXi4djQt21y";
+
     Linking.canOpenURL(whatsappChannelLink)
-      .then(supported => {
+      .then((supported) => {
         if (supported) {
           Linking.openURL(whatsappChannelLink);
         } else {
           Alert.alert("Error", "WhatsApp is not installed on your device");
         }
       })
-      .catch(err => {
-        console.log('WhatsApp link error:', err);
+      .catch((err) => {
+        console.log("WhatsApp link error:", err);
         Alert.alert("Error", "Unable to open WhatsApp");
       });
   };
@@ -292,7 +317,7 @@ function AppStack() {
         <Stack.Screen name="Updates" component={UpdatesScreen} />
         <Stack.Screen name="More" component={MoreScreen} />
       </Stack.Navigator>
-      
+
       {/* ✅ NEW - Floating WhatsApp Button */}
       <FloatingWhatsAppButton />
     </View>
@@ -353,16 +378,16 @@ function App() {
         // Check network
         const netInfo = await NetInfo.fetch();
         if (!netInfo.isConnected) {
-          console.log('No internet connection');
+          console.log("No internet connection");
           return;
         }
 
         // Add artificial delay to prevent flash
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
         setIsReady(true);
       } catch (error) {
-        console.error('Preparation failed:', error);
+        console.error("Preparation failed:", error);
       }
     }
 
@@ -372,22 +397,27 @@ function App() {
   if (!fontsLoaded || !isReady) return null;
 
   return (
-   <ErrorBoundary>
-    <SafeAreaProvider>
-      <AuthProvider>
-        <StatusBar barStyle="light-content" backgroundColor="#2a2a2a" />
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <StatusBar barStyle="light-content" backgroundColor="#2a2a2a" />
 
-        {/* 🔹 Offline Banner */}
-        {!isConnected && (
-          <View style={styles.offlineBanner}>
-            <Ionicons name="wifi-off" size={16} color="#fff" style={styles.offlineIcon} />
-            <Text style={styles.offlineText}>No Internet Connection</Text>
-          </View>
-        )}
+          {/* 🔹 Offline Banner */}
+          {!isConnected && (
+            <View style={styles.offlineBanner}>
+              <Ionicons
+                name="wifi-off"
+                size={16}
+                color="#fff"
+                style={styles.offlineIcon}
+              />
+              <Text style={styles.offlineText}>No Internet Connection</Text>
+            </View>
+          )}
 
-        <AppNavigator />
-      </AuthProvider>
-    </SafeAreaProvider>
+          <AppNavigator />
+        </AuthProvider>
+      </SafeAreaProvider>
     </ErrorBoundary>
   );
 }
@@ -470,42 +500,42 @@ const styles = StyleSheet.create({
   },
   // 🔹 Offline Banner Styles
   offlineBanner: {
-    backgroundColor: '#ff4444',
+    backgroundColor: "#ff4444",
     paddingVertical: 8,
     paddingHorizontal: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     zIndex: 1000,
   },
   offlineIcon: {
     marginRight: 8,
   },
   offlineText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
+    fontWeight: "600",
+    textAlign: "center",
   },
   // ✅ NEW - Floating WhatsApp Button Styles
   whatsappFloat: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 90,
     right: 20,
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#25D366', 
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#25D366",
+    justifyContent: "center",
+    alignItems: "center",
     elevation: 8,
-    shadowColor: '#000', 
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 4,
     },
     shadowOpacity: 0.3,
     shadowRadius: 4.65,
-    zIndex: 1000, 
+    zIndex: 1000,
   },
 });
