@@ -2,18 +2,12 @@ import { firebase } from '@react-native-firebase/app';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 
-// With React Native Firebase, you don't need to initialize with config
-// The configuration comes from google-services.json (Android) and GoogleService-Info.plist (iOS)
-
 // Validate that Firebase is properly initialized
 const validateFirebaseSetup = () => {
   try {
     // Check if Firebase app is initialized
     const app = firebase.app();
-    console.log('✅ Firebase app initialized');
-    console.log('📱 Project ID:', app.options.projectId);
-    console.log('🔑 App ID:', app.options.appId);
-    
+
     return {
       isValid: true,
       projectId: app.options.projectId,

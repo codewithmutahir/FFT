@@ -211,68 +211,48 @@ export default function MoreScreen({ navigation }) {
 
   // Load menu items from Firebase
   useEffect(() => {
-    let unsubscribe = null;
+    let mounted = true;
+    setLoading(true);
 
-    const loadMenuItems = () => {
+    const loadMenuItems = async () => {
       try {
-        unsubscribe = firestore()
+        // First try to get data
+        const docRef = await firestore()
           .collection("moreScreenItems")
           .doc("config")
-          .onSnapshot(
-            (doc) => {
-              try {
-                if (doc.exists) {
-                  const data = doc.data();
-                  if (data?.items) {
-                    const visibleItems = data.items
-                      .filter((item) => item.isVisible)
-                      .sort((a, b) => a.order - b.order);
-                    setMenuItems(visibleItems);
-                    console.log("Loaded items from Firebase:", visibleItems.map(i => ({title: i.title, type: i.type, target: i.navigationTarget})));
-                  } else {
-                    const defaultItems = getDefaultMenuItems();
-                    setMenuItems(defaultItems);
-                    console.log("Using default items (no admin data)");
-                  }
-                } else {
-                  const defaultItems = getDefaultMenuItems();
-                  setMenuItems(defaultItems);
-                  console.log("Using default items (doc doesn't exist)");
-                }
-                setLoading(false);
-                setError(null);
-              } catch (err) {
-                console.error("Error processing menu items:", err);
-                setError("Failed to load menu items");
-                setMenuItems(getDefaultMenuItems());
-                setLoading(false);
-              }
-            },
-            (err) => {
-              console.error("Firebase listener error:", err);
-              setError("Failed to connect to server");
-              setMenuItems(getDefaultMenuItems());
-              setLoading(false);
-            }
-          );
+          .get();
+
+        if (!mounted) return;
+
+        if (docRef.exists) {
+          const data = docRef.data();
+          if (data?.items) {
+            const visibleItems = data.items
+              .filter((item) => item.isVisible)
+              .sort((a, b) => a.order - b.order);
+            setMenuItems(visibleItems);
+          } else {
+            setMenuItems(getDefaultMenuItems());
+          }
+        } else {
+          setMenuItems(getDefaultMenuItems());
+        }
+        setError(null);
       } catch (error) {
-        console.error("Failed to set up Firebase listener:", error);
-        setError("Failed to initialize connection");
+        console.error("Failed to load menu items:", error);
+        setError("Failed to connect to server");
         setMenuItems(getDefaultMenuItems());
-        setLoading(false);
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
     loadMenuItems();
 
     return () => {
-      if (unsubscribe) {
-        try {
-          unsubscribe();
-        } catch (error) {
-          console.error("Error cleaning up Firebase listener:", error);
-        }
-      }
+      mounted = false;
     };
   }, [getDefaultMenuItems]);
 

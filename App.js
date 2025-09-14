@@ -9,6 +9,8 @@ import {
   Image,
   Linking,
   Alert,
+  ActivityIndicator,
+  LogBox,
 } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -32,6 +34,13 @@ import * as Notifications from "expo-notifications";
 import { useFonts } from "expo-font";
 import useNetwork from "./src/components/useNetwork.js";
 import { typography } from "./theme/typography.js";
+import NetInfo from '@react-native-community/netinfo';
+
+LogBox.ignoreLogs([
+  'Setting a timer',
+  'AsyncStorage has been extracted',
+  'Non-serializable values were found in the navigation state',
+]);
 
 const Stack = createNativeStackNavigator();
 
@@ -43,52 +52,132 @@ Notifications.setNotificationHandler({
   }),
 });
 
+const ErrorFallback = ({ error, resetError }) => (
+  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#1a1a1a' }}>
+    <Text style={{ color: '#fff', fontSize: 18, marginBottom: 10 }}>Something went wrong!</Text>
+    <Text style={{ color: '#aaa', fontSize: 14, textAlign: 'center', marginBottom: 20 }}>
+      {error.toString()}
+    </Text>
+    <TouchableOpacity
+      style={{
+        backgroundColor: '#ff4500',
+        padding: 12,
+        borderRadius: 8
+      }}
+      onPress={resetError}
+    >
+      <Text style={{ color: '#fff', fontWeight: 'bold' }}>Try Again</Text>
+    </TouchableOpacity>
+  </View>
+);
+
+
 function CustomHeader({ navigation }) {
   const insets = useSafeAreaInsets();
-  const { user, coins } = useContext(AuthContext); // 🔹 global coins
+  const { user, coins } = useContext(AuthContext);
   const [hasUnreadUpdates, setHasUnreadUpdates] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      const unsubUpdates = firestore()
-        .collection("active-tournaments")
-        .onSnapshot((snapshot) => {
-          const unread = snapshot.docs.some((docSnap) => {
-            const data = docSnap.data();
+    if (!user?.uid) return;
 
-            const hasBookedSlot = data.bookedSlots?.some(
-              (slot) => slot.uid === user.uid
-            );
+    const unsubUpdates = firestore()
+      .collection("active-tournaments")
+      .onSnapshot(
+        (snapshot) => {
+          try {
+            if (!snapshot || !snapshot.docs) {
+              console.log('❌ Invalid snapshot or docs');
+              setHasUnreadUpdates(false);
+              return;
+            }
 
-            const hasNewUpdate =
-              (data.roomId && data.roomId !== "Not released yet") ||
-              (data.pass && data.pass !== "Not released yet");
+            const validDocs = snapshot.docs.filter(doc => doc && doc.exists);
 
-            const updateTime =
-              (data.updatedAt?.toDate
-                ? data.updatedAt.toDate()
-                : data.updatedAt
-                ? new Date(data.updatedAt)
-                : null) ||
-              (data.createdAt?.toDate
-                ? data.createdAt.toDate()
-                : data.createdAt
-                ? new Date(data.createdAt)
-                : null) ||
-              new Date();
+            if (validDocs.length === 0) {
+              console.log('✅ No valid tournament documents found');
+              setHasUnreadUpdates(false);
+              return;
+            }
 
-            const lastReadUpdates = data?.lastReadUpdates?.toDate?.();
-            const isUnread =
-              !lastReadUpdates || (updateTime && updateTime > lastReadUpdates);
+            console.log(`🔍 Checking ${validDocs.length} tournaments for updates`);
 
-            return hasBookedSlot && hasNewUpdate && isUnread;
-          });
+            const unread = validDocs.some((doc) => {
+              try {
+                const data = doc.data();
+                
+                if (!data) {
+                  console.log('⚠️ Empty document data:', doc.id);
+                  return false;
+                }
 
-          setHasUnreadUpdates(unread);
-        });
+                // Check if user has booked slot
+                const hasBookedSlot = Array.isArray(data.bookedSlots) && 
+                  data.bookedSlots.some(slot => slot?.uid === user.uid);
 
-      return () => unsubUpdates();
-    }
+                if (!hasBookedSlot) {
+                  return false;
+                }
+
+                // Check if there are actual updates (same as UpdatesScreen)
+                if (!data.roomId && !data.pass) {
+                  return false;
+                }
+
+                // ✅ ADD TIME FILTER (same as UpdatesScreen)
+                const oneHourAgo = Date.now() - (60 * 60 * 1000);
+                let updateTime = 0;
+
+                try {
+                  if (typeof data.updatedAt === 'string') {
+                    const cleanDateString = data.updatedAt.replace(' UTC+5', '');
+                    const parsedDate = new Date(cleanDateString);
+                    if (!isNaN(parsedDate)) {
+                      updateTime = parsedDate.getTime();
+                    }
+                  } else if (data.updatedAt && data.updatedAt.toDate) {
+                    updateTime = data.updatedAt.toDate().getTime();
+                  }
+                } catch (error) {
+                  console.error('Error parsing timestamp for tournament', doc.id, error);
+                  return false;
+                }
+
+                // Only show updates from the last 1 hour (same as UpdatesScreen)
+                if (updateTime <= oneHourAgo) {
+                  return false;
+                }
+
+                // ✅ Now check if it's unread (simplified logic)
+                // Since UpdatesScreen marks as read in users collection,
+                // we can use a simpler approach here
+                return true; // If it passes all above checks, show dot
+
+              } catch (docError) {
+                console.error('❌ Error processing doc:', doc.id, docError);
+                return false;
+              }
+            });
+
+            console.log('✅ Updates check complete. Has unread:', unread);
+            setHasUnreadUpdates(unread);
+
+          } catch (snapshotError) {
+            console.error('❌ Error processing snapshot:', snapshotError);
+            setHasUnreadUpdates(false);
+          }
+        },
+        (error) => {
+          console.error('❌ Firestore listener error:', error);
+          setHasUnreadUpdates(false);
+        }
+      );
+
+    return () => {
+      console.log('🧹 Cleaning up updates listener');
+      if (unsubUpdates) {
+        unsubUpdates();
+      }
+    };
   }, [user]);
 
   return (
@@ -256,9 +345,34 @@ function App() {
     })();
   }, []);
 
-  if (!fontsLoaded) return null;
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    async function prepare() {
+      try {
+        // Check network
+        const netInfo = await NetInfo.fetch();
+        if (!netInfo.isConnected) {
+          console.log('No internet connection');
+          return;
+        }
+
+        // Add artificial delay to prevent flash
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        setIsReady(true);
+      } catch (error) {
+        console.error('Preparation failed:', error);
+      }
+    }
+
+    prepare();
+  }, []);
+
+  if (!fontsLoaded || !isReady) return null;
 
   return (
+   <ErrorBoundary>
     <SafeAreaProvider>
       <AuthProvider>
         <StatusBar barStyle="light-content" backgroundColor="#2a2a2a" />
@@ -274,6 +388,7 @@ function App() {
         <AppNavigator />
       </AuthProvider>
     </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 

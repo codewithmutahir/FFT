@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Animated } from "react-native";
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Animated, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import firestore from "@react-native-firebase/firestore";
 import { typography } from "../../theme/typography";
@@ -43,30 +43,56 @@ export default function LeaderboardScreen() {
   const [users, setUsers] = useState([]);
   const [period, setPeriod] = useState("total");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     setLoading(true);
-    const usersRef = firestore().collection('users');
-    const query = usersRef.orderBy('coins', 'desc').limit(5);
+    
+    try {
+      const unsubscribe = firestore()
+        .collection('users')
+        .orderBy('totalWinnings', 'desc')
+        .limit(50) // Adjust limit as needed
+        .onSnapshot(
+          (snapshot) => {
+            if (!snapshot) {
+              setError('No data available');
+              setLoading(false);
+              return;
+            }
 
-    const unsubscribe = query.onSnapshot(
-      (snapshot) => {
-        const rankedUsers = snapshot.docs.map((doc, index) => ({
-          id: doc.id,
-          rank: index + 1,
-          ...doc.data(),
-        }));
-        setUsers(rankedUsers);
-        setLoading(false);
-      },
-      (error) => {
-        console.error("Error fetching leaderboard:", error);
-        setLoading(false);
-      }
-    );
+            const leaderboardData = snapshot.docs
+              .map(doc => {
+                const data = doc.data();
+                return {
+                  id: doc.id,
+                  username: data.username || 'Anonymous',
+                  totalWinnings: data.totalWinnings || 0,
+                  matchesPlayed: data.matchesPlayed || 0,
+                  wins: data.wins || 0,
+                  avatar: data.avatar || null
+                };
+              })
+              .filter(user => user.totalWinnings > 0); // Only show users with winnings
 
-    return () => unsubscribe();
-  }, [period]);
+            setUsers(leaderboardData);
+            setLoading(false);
+            setError(null);
+          },
+          (error) => {
+            console.error('Leaderboard error:', error);
+            setError('Failed to load leaderboard');
+            setLoading(false);
+          }
+        );
+
+      return () => unsubscribe();
+    } catch (error) {
+      console.error('Setup error:', error);
+      setError('Failed to initialize leaderboard');
+      setLoading(false);
+    }
+  }, []);
 
   const getMedalIcon = (rank) => {
     switch (rank) {
@@ -127,6 +153,57 @@ export default function LeaderboardScreen() {
     setLoading(true);
   };
 
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#FF6B35" />
+          <Text style={styles.loadingText}>Loading leaderboard...</Text>
+        </View>
+      );
+    }
+
+    if (error) {
+      return (
+        <View style={styles.centerContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity 
+            style={styles.retryButton}
+            onPress={() => {
+              setLoading(true);
+              setError(null);
+              // This will trigger the useEffect again
+            }}
+          >
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (!users.length) {
+      return (
+        <View style={styles.centerContainer}>
+          <Text style={styles.emptyText}>No leaderboard data available yet</Text>
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={users}
+        renderItem={renderUser}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContainer}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No users found</Text>
+          </View>
+        }
+      />
+    );
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.headerContainer}>
@@ -160,21 +237,7 @@ export default function LeaderboardScreen() {
         </TouchableOpacity>
       </View>
 
-      {loading ? (
-        renderSkeleton()
-      ) : (
-        <FlatList
-          data={users}
-          renderItem={renderUser}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContainer}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No users found</Text>
-            </View>
-          }
-        />
-      )}
+      {renderContent()}
     </View>
   );
 }
@@ -259,5 +322,33 @@ const styles = StyleSheet.create({
     fontSize: 18,
     textAlign: "center",
     marginTop: 50,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  loadingText: {
+    color: "#fff",
+    fontSize: 16,
+    marginTop: 10,
+  },
+  errorText: {
+    color: "#ff4500",
+    fontSize: 16,
+    marginTop: 10,
+    textAlign: "center",
+  },
+  retryButton: {
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+    backgroundColor: "#ff4500",
+  },
+  retryText: {
+    color: "#fff",
+    fontSize: 16,
   },
 });

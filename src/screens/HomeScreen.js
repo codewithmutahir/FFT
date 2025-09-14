@@ -114,30 +114,61 @@ export default function HomeScreen({ navigation }) {
     }),
   }), [animatedValue]);
 
-  // Optimized tournament stats fetching - using query instead of fetching all docs
-  const fetchTournamentStats = async () => {
-    if (!user?.uid) return;
+ const fetchTournamentStats = async () => {
+   if (!user?.uid) return;
 
-    try {
-      // More efficient query - only get tournaments where user might be present
-      const snapshot = await firestore().collection("active-tournaments").get();
+   try {
+     console.log('🔍 Fetching tournament stats...');
+     const snapshot = await firestore().collection("active-tournaments").get();
 
-      let joinedCount = 0;
+     // ✅ FIXED: Add proper null checks
+     if (!snapshot) {
+       console.log('❌ Snapshot is null');
+       setJoinedTournaments(0);
+       return;
+     }
 
-      // Process documents more efficiently
-      const docs = snapshot.docs;
-      for (let i = 0; i < docs.length; i++) {
-        const tournamentData = docs[i].data();
-        if (tournamentData.bookedSlots?.some(slot => slot.uid === user.uid)) {
-          joinedCount++;
-        }
-      }
+     if (!snapshot.docs || snapshot.docs.length === 0) {
+       console.log('✅ No tournament documents found');
+       setJoinedTournaments(0);
+       return;
+     }
 
-      setJoinedTournaments(joinedCount);
-    } catch (error) {
-      console.error("Error fetching tournament stats:", error);
-    }
-  };
+     let joinedCount = 0;
+     console.log(`🔍 Processing ${snapshot.docs.length} tournaments`);
+
+     snapshot.docs.forEach((doc) => {
+       try {
+         const tournamentData = doc.data();
+
+         // ✅ FIXED: Add null check for tournamentData
+         if (!tournamentData) {
+           console.log('⚠️ Tournament data is null for doc:', doc.id);
+           return;
+         }
+
+         // ✅ FIXED: Add null check for bookedSlots
+         const bookedSlots = tournamentData.bookedSlots;
+         if (bookedSlots && Array.isArray(bookedSlots)) {
+           const isJoined = bookedSlots.some(slot => slot?.uid === user.uid);
+           if (isJoined) {
+             joinedCount++;
+             console.log('✅ Found joined tournament:', doc.id);
+           }
+         }
+       } catch (docError) {
+         console.log('❌ Error processing tournament doc:', doc.id, docError);
+       }
+     });
+
+     console.log('✅ Tournament stats complete. Joined:', joinedCount);
+     setJoinedTournaments(joinedCount);
+   } catch (error) {
+     console.error("❌ Error fetching tournament stats:", error);
+     setJoinedTournaments(0);
+   }
+ };
+
 
   // Single effect for user data and initialization
   useEffect(() => {

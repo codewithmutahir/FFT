@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useContext } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
-import { NativeModules, Platform, View, Text } from "react-native";
+import { NativeModules, Platform, View, Text, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import TournamentCategories from "./screens/TournamentCategories";
@@ -13,6 +13,7 @@ import UpdatesScreen from "./screens/UpdatesScreen";
 import WalletScreen from "./screens/WalletScreen";
 import MoreScreen from "./screens/MoreScreen"; 
 import { typography } from "../theme/typography";
+import { AuthProvider } from "../src/AuthProvider";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -45,6 +46,7 @@ function MoreStack() {
 export default function AppNavigation() {
   const insets = useSafeAreaInsets();
   const [hasNavBar, setHasNavBar] = useState(false);
+  const { user } = useContext(AuthProvider);
 
   useEffect(() => {
     if (Platform.OS === "android") {
@@ -58,6 +60,15 @@ export default function AppNavigation() {
       }
     }
   }, []);
+
+  // Add null check for user context
+  if (user === undefined) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#FF6B35" />
+      </View>
+    );
+  }
 
   return (
     <Tab.Navigator

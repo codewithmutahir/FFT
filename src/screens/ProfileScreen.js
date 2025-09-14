@@ -198,6 +198,35 @@ export default function ProfileScreen() {
     setNewPassword("");
   };
 
+  const loadUserData = async () => {
+    try {
+      if (!user?.uid) {
+        console.log('No user ID found');
+        return;
+      }
+
+      const userDoc = await firestore()
+        .collection('users')
+        .doc(user.uid)
+        .get();
+
+      if (!userDoc.exists) {
+        console.log('No user document found');
+        return;
+      }
+
+      const userData = userDoc.data();
+      if (!userData) {
+        console.log('User document is empty');
+        return;
+      }
+
+      setUserData(userData);
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.headerContainer}>
