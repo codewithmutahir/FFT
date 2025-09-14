@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useState, useRef } from "react";
 import {
   SafeAreaView,
   StyleSheet,
@@ -11,6 +11,8 @@ import {
   Alert,
   ActivityIndicator,
   LogBox,
+  Animated,
+  Dimensions,
 } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -35,6 +37,8 @@ import { useFonts } from "expo-font";
 import useNetwork from "./src/components/useNetwork.js";
 import { typography } from "./theme/typography.js";
 import NetInfo from '@react-native-community/netinfo';
+
+const { width } = Dimensions.get('window');
 
 LogBox.ignoreLogs([
   'Setting a timer',
@@ -71,11 +75,19 @@ const ErrorFallback = ({ error, resetError }) => (
   </View>
 );
 
-
 function CustomHeader({ navigation }) {
   const insets = useSafeAreaInsets();
   const { user, coins } = useContext(AuthContext);
   const [hasUnreadUpdates, setHasUnreadUpdates] = useState(false);
+  const [showNotificationBanner, setShowNotificationBanner] = useState(false);
+
+  // Animation refs
+  const bannerSlideAnim = useRef(new Animated.Value(-100)).current;
+  const bellShakeAnim = useRef(new Animated.Value(0)).current;
+  const bannerOpacity = useRef(new Animated.Value(0)).current;
+
+  // Track previous state to detect new updates
+  const prevUpdatesRef = useRef(false);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -118,12 +130,12 @@ function CustomHeader({ navigation }) {
                   return false;
                 }
 
-                // Check if there are actual updates (same as UpdatesScreen)
+                // Check if there are actual updates
                 if (!data.roomId && !data.pass) {
                   return false;
                 }
 
-                // ✅ ADD TIME FILTER (same as UpdatesScreen)
+                // Add time filter (1 hour)
                 const oneHourAgo = Date.now() - (60 * 60 * 1000);
                 let updateTime = 0;
 
@@ -142,15 +154,17 @@ function CustomHeader({ navigation }) {
                   return false;
                 }
 
-                // Only show updates from the last 1 hour (same as UpdatesScreen)
+                // Only show updates from the last 1 hour
                 if (updateTime <= oneHourAgo) {
                   return false;
                 }
 
-                // ✅ Now check if it's unread (simplified logic)
-                // Since UpdatesScreen marks as read in users collection,
-                // we can use a simpler approach here
-                return true; // If it passes all above checks, show dot
+                // Check if it's unread
+                const lastReadUpdates = data.lastReadUpdates?.toDate?.();
+                const isUnread = !lastReadUpdates || 
+                  (updateTime && updateTime > lastReadUpdates.getTime());
+
+                return isUnread;
 
               } catch (docError) {
                 console.error('❌ Error processing doc:', doc.id, docError);
@@ -159,6 +173,14 @@ function CustomHeader({ navigation }) {
             });
 
             console.log('✅ Updates check complete. Has unread:', unread);
+            
+            // 🎯 Detect NEW updates (when state changes from false to true)
+            if (!prevUpdatesRef.current && unread) {
+              console.log('🔔 NEW UPDATE DETECTED! Showing notification banner');
+              showUpdateNotification();
+            }
+            
+            prevUpdatesRef.current = unread;
             setHasUnreadUpdates(unread);
 
           } catch (snapshotError) {
@@ -180,56 +202,200 @@ function CustomHeader({ navigation }) {
     };
   }, [user]);
 
+  const showUpdateNotification = () => {
+    setShowNotificationBanner(true);
+
+    // 🔔 Bell shake animation
+    Animated.sequence([
+      Animated.timing(bellShakeAnim, {
+        toValue: 10,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(bellShakeAnim, {
+        toValue: -10,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(bellShakeAnim, {
+        toValue: 10,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(bellShakeAnim, {
+        toValue: 0,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // 📢 Banner slide down animation
+    Animated.parallel([
+      Animated.timing(bannerSlideAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(bannerOpacity, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Auto hide after 4 seconds
+    setTimeout(() => {
+      hideUpdateNotification();
+    }, 4000);
+  };
+
+  const hideUpdateNotification = () => {
+    Animated.parallel([
+      Animated.timing(bannerSlideAnim, {
+        toValue: -100,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(bannerOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setShowNotificationBanner(false);
+    });
+  };
+
   return (
-    <View style={[styles.header, { paddingTop: insets.top }]}>
-      {/* Left side */}
-      <View style={styles.headerLeft}>
-        <Image
-          source={require("./assets/pro-arena-icon.png")}
-          style={styles.AppLogo}
-        />
-      </View>
-
-      {/* Right side */}
-      <View style={styles.headerRight}>
-        {/* Coins Button */}
-        <TouchableOpacity
-          onPress={() => navigation.navigate("Wallet")}
-          style={styles.coinsContainer}
-          activeOpacity={0.7}
+    <View style={{ position: 'relative' }}>
+      {/* 📢 Animated Notification Banner */}
+      {showNotificationBanner && (
+        <Animated.View
+          style={{
+            position: 'absolute',
+            top: insets.top + 60,
+            left: 10,
+            right: 10,
+            zIndex: 1000,
+            transform: [{ translateY: bannerSlideAnim }],
+            opacity: bannerOpacity,
+          }}
         >
-          <Image
-            source={{
-              uri: "https://cdn-icons-png.flaticon.com/512/1490/1490832.png",
+          <TouchableOpacity
+            onPress={() => {
+              hideUpdateNotification();
+              navigation.navigate("Updates");
             }}
-            style={styles.coinIcon}
-          />
-          <Text style={[styles.coinsText, typography.cardText]}>
-            {coins} Coins
-          </Text>
-        </TouchableOpacity>
+            style={{
+              backgroundColor: '#ff4500',
+              borderRadius: 12,
+              padding: 15,
+              flexDirection: 'row',
+              alignItems: 'center',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 8,
+              elevation: 8,
+            }}
+            activeOpacity={0.8}
+          >
+            <View
+              style={{
+                backgroundColor: '#fff',
+                borderRadius: 20,
+                padding: 8,
+                marginRight: 12,
+              }}
+            >
+              <Ionicons name="notifications" size={20} color="#ff4500" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  color: '#fff',
+                  fontSize: 16,
+                  fontWeight: 'bold',
+                  marginBottom: 2,
+                }}
+              >
+                New Updates Available! 🎮
+              </Text>
+              <Text
+                style={{
+                  color: '#ffffffcc',
+                  fontSize: 14,
+                }}
+              >
+                Check out your tournament updates
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={hideUpdateNotification}
+              style={{ padding: 5 }}
+            >
+              <Ionicons name="close" size={20} color="#fff" />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
 
-        {/* Notifications */}
-        <TouchableOpacity
-          onPress={() => navigation.navigate("Updates")}
-          style={styles.updatesContainer}
-          activeOpacity={0.7}
-        >
-          <View style={styles.iconWrapper}>
-            <Ionicons name="notifications" size={24} color="#fff" />
-            {hasUnreadUpdates && <View style={styles.badge} />}
-          </View>
-        </TouchableOpacity>
+      {/* 📱 Main Header */}
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        {/* Left side */}
+        <View style={styles.headerLeft}>
+          <Image
+            source={require("./assets/pro-arena-icon.png")}
+            style={styles.AppLogo}
+          />
+        </View>
+
+        {/* Right side */}
+        <View style={styles.headerRight}>
+          {/* Coins Button */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate("Wallet")}
+            style={styles.coinsContainer}
+            activeOpacity={0.7}
+          >
+            <Image
+              source={{
+                uri: "https://cdn-icons-png.flaticon.com/512/1490/1490832.png",
+              }}
+              style={styles.coinIcon}
+            />
+            <Text style={[styles.coinsText, typography.cardText]}>
+              {coins} Coins
+            </Text>
+          </TouchableOpacity>
+
+          {/* 🔔 Notifications with Shake Animation */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate("Updates")}
+            style={styles.updatesContainer}
+            activeOpacity={0.7}
+          >
+            <Animated.View
+              style={[
+                styles.iconWrapper,
+                {
+                  transform: [{ translateX: bellShakeAnim }],
+                },
+              ]}
+            >
+              <Ionicons name="notifications" size={24} color="#fff" />
+              {hasUnreadUpdates && <View style={styles.badge} />}
+            </Animated.View>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
 }
 
-
-// ✅ NEW - Floating WhatsApp Button Component
+// ✅ Floating WhatsApp Button Component
 function FloatingWhatsAppButton() {
   const handleWhatsAppPress = () => {
-    // 🔹 Yahan apna WhatsApp group link daalo
     const whatsappChannelLink = "https://whatsapp.com/channel/0029VbBWnSyEFeXi4djQt21y";
     
     Linking.canOpenURL(whatsappChannelLink)
@@ -293,7 +459,7 @@ function AppStack() {
         <Stack.Screen name="More" component={MoreScreen} />
       </Stack.Navigator>
       
-      {/* ✅ NEW - Floating WhatsApp Button */}
+      {/* ✅ Floating WhatsApp Button */}
       <FloatingWhatsAppButton />
     </View>
   );
@@ -350,14 +516,12 @@ function App() {
   useEffect(() => {
     async function prepare() {
       try {
-        // Check network
         const netInfo = await NetInfo.fetch();
         if (!netInfo.isConnected) {
           console.log('No internet connection');
           return;
         }
 
-        // Add artificial delay to prevent flash
         await new Promise(resolve => setTimeout(resolve, 1000));
         
         setIsReady(true);
@@ -372,7 +536,6 @@ function App() {
   if (!fontsLoaded || !isReady) return null;
 
   return (
-   <ErrorBoundary>
     <SafeAreaProvider>
       <AuthProvider>
         <StatusBar barStyle="light-content" backgroundColor="#2a2a2a" />
@@ -388,7 +551,6 @@ function App() {
         <AppNavigator />
       </AuthProvider>
     </SafeAreaProvider>
-    </ErrorBoundary>
   );
 }
 
@@ -487,7 +649,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  // ✅ NEW - Floating WhatsApp Button Styles
+  // ✅ Floating WhatsApp Button Styles
   whatsappFloat: {
     position: 'absolute',
     bottom: 90,

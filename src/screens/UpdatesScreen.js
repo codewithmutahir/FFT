@@ -159,17 +159,68 @@ useEffect(() => {
     }, [user])
   );
 
-  const markUpdatesAsRead = async () => {
-    try {
-      const userRef = firestore().doc(`users/${user.uid}`);
-      await userRef.update({
-        lastReadUpdates: firestore.FieldValue.serverTimestamp()
-      });
-      console.log("Updates marked as read");
-    } catch (error) {
-      console.error("Error marking updates as read:", error);
+ // Replace your markUpdatesAsRead function with this:
+
+const markUpdatesAsRead = async () => {
+  try {
+    // Get all tournaments that have updates for this user
+    const snapshot = await firestore()
+      .collection('active-tournaments')
+      .get();
+
+    const batch = firestore().batch();
+    let updatesFound = false;
+
+    snapshot.docs.forEach(doc => {
+      const data = doc.data();
+      
+      // Check if user has booked slot
+      const hasBookedSlot = data.bookedSlots?.some(slot => slot.uid === user.uid);
+      
+      if (hasBookedSlot) {
+        // Check if there are actual updates
+        if (data.roomId || data.pass) {
+          // Check if update is within 1 hour
+          const oneHourAgo = Date.now() - (60 * 60 * 1000);
+          let updateTime = 0;
+
+          try {
+            if (typeof data.updatedAt === 'string') {
+              const cleanDateString = data.updatedAt.replace(' UTC+5', '');
+              const parsedDate = new Date(cleanDateString);
+              if (!isNaN(parsedDate)) {
+                updateTime = parsedDate.getTime();
+              }
+            } else if (data.updatedAt && data.updatedAt.toDate) {
+              updateTime = data.updatedAt.toDate().getTime();
+            }
+          } catch (error) {
+            console.error('Error parsing timestamp:', error);
+          }
+
+          // If update is within 1 hour, mark as read
+          if (updateTime > oneHourAgo) {
+            const tournamentRef = firestore().doc(`active-tournaments/${doc.id}`);
+            batch.update(tournamentRef, {
+              lastReadUpdates: firestore.FieldValue.serverTimestamp()
+            });
+            updatesFound = true;
+          }
+        }
+      }
+    });
+
+    if (updatesFound) {
+      await batch.commit();
+      console.log("Tournament updates marked as read");
+    } else {
+      console.log("No tournament updates to mark as read");
     }
-  };
+
+  } catch (error) {
+    console.error("Error marking updates as read:", error);
+  }
+};
 
   const renderUpdate = ({ item }) => (
     <View style={styles.updateCard}>
