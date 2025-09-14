@@ -1,4 +1,4 @@
-import React, { useContext, useState, useEffect, useRef, useMemo } from "react";
+import React, { useContext, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,9 @@ import {
   ScrollView,
   Animated,
   Dimensions,
+  RefreshControl,
+  Platform,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +20,21 @@ import { typography } from "../../theme/typography";
 
 const { width } = Dimensions.get("window");
 
+// Navigation route constants
+const ROUTES = {
+  TOURNAMENT_CATEGORIES: 'TournamentCategories',
+  WALLET: 'Wallet',
+  LEADERBOARD: 'Leaderboard',
+  UPDATES: 'Updates',
+};
+
+// Animation constants
+const ANIMATION = {
+  DURATION: Platform.OS === 'ios' ? 400 : 300,
+  SHIMMER_DURATION: 1200,
+  TOUR_DELAY: 800,
+};
+
 // Optimized Shimmer Component
 const Shimmer = React.memo(({ style }) => {
   const animatedValue = useRef(new Animated.Value(-1)).current;
@@ -25,7 +43,7 @@ const Shimmer = React.memo(({ style }) => {
     const animation = Animated.loop(
       Animated.timing(animatedValue, {
         toValue: 1,
-        duration: 1200,
+        duration: ANIMATION.SHIMMER_DURATION,
         useNativeDriver: true,
       })
     );
@@ -90,11 +108,31 @@ const SkeletonQuickActions = React.memo(() => (
   </View>
 ));
 
+// Error State Component
+const ErrorState = React.memo(({ onRetry, message = "Failed to load data" }) => (
+  <View style={styles.errorContainer}>
+    <Ionicons name="warning" size={64} color="#ff4500" />
+    <Text style={styles.errorTitle}>Oops!</Text>
+    <Text style={styles.errorText}>{message}</Text>
+    <TouchableOpacity 
+      style={styles.retryButton} 
+      onPress={onRetry}
+      accessible={true}
+      accessibilityLabel="Retry loading data"
+      accessibilityRole="button"
+    >
+      <Text style={styles.retryText}>Try Again</Text>
+    </TouchableOpacity>
+  </View>
+));
+
 export default function HomeScreen({ navigation }) {
   const { user } = useContext(AuthContext);
   const [joinedTournaments, setJoinedTournaments] = useState(0);
   const [wonTournaments, setWonTournaments] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [userName, setUserName] = useState("");
   const [isNewUser, setIsNewUser] = useState(false);
   const [showTour, setShowTour] = useState(false);
@@ -102,7 +140,7 @@ export default function HomeScreen({ navigation }) {
   // Single animated value that persists
   const animatedValue = useRef(new Animated.Value(0)).current;
 
-  // Memoize animated interpolations to prevent recalculation
+  // Memoize animated interpolations and styles to prevent recalculation
   const { cardTranslateY, cardOpacity } = useMemo(() => ({
     cardTranslateY: animatedValue.interpolate({
       inputRange: [0, 1],
@@ -114,120 +152,198 @@ export default function HomeScreen({ navigation }) {
     }),
   }), [animatedValue]);
 
- const fetchTournamentStats = async () => {
-   if (!user?.uid) return;
+  const animatedCardStyle = useMemo(() => ({
+    transform: [{ translateY: cardTranslateY }],
+    opacity: cardOpacity,
+    marginBottom: 20,
+  }), [cardTranslateY, cardOpacity]);
 
-   try {
-     console.log('🔍 Fetching tournament stats...');
-     const snapshot = await firestore().collection("active-tournaments").get();
+  const animatedCardStyleNoMargin = useMemo(() => ({
+    transform: [{ translateY: cardTranslateY }],
+    opacity: cardOpacity,
+  }), [cardTranslateY, cardOpacity]);
 
-     // ✅ FIXED: Add proper null checks
-     if (!snapshot) {
-       console.log('❌ Snapshot is null');
-       setJoinedTournaments(0);
-       return;
-     }
+  // Start entrance animation
+  const startAnimation = useCallback(() => {
+    Animated.timing(animatedValue, {
+      toValue: 1,
+      duration: ANIMATION.DURATION,
+      useNativeDriver: true,
+    }).start();
+  }, [animatedValue]);
 
-     if (!snapshot.docs || snapshot.docs.length === 0) {
-       console.log('✅ No tournament documents found');
-       setJoinedTournaments(0);
-       return;
-     }
+  // Retry function for error states
+  const handleRetry = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    // The useEffect will automatically refetch when loading changes
+  }, []);
 
-     let joinedCount = 0;
-     console.log(`🔍 Processing ${snapshot.docs.length} tournaments`);
+  // Refresh function for pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    // The real-time listeners will update the data
+    // Add a small delay to show refresh animation
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  }, []);
 
-     snapshot.docs.forEach((doc) => {
-       try {
-         const tournamentData = doc.data();
-
-         // ✅ FIXED: Add null check for tournamentData
-         if (!tournamentData) {
-           console.log('⚠️ Tournament data is null for doc:', doc.id);
-           return;
-         }
-
-         // ✅ FIXED: Add null check for bookedSlots
-         const bookedSlots = tournamentData.bookedSlots;
-         if (bookedSlots && Array.isArray(bookedSlots)) {
-           const isJoined = bookedSlots.some(slot => slot?.uid === user.uid);
-           if (isJoined) {
-             joinedCount++;
-             console.log('✅ Found joined tournament:', doc.id);
-           }
-         }
-       } catch (docError) {
-         console.log('❌ Error processing tournament doc:', doc.id, docError);
-       }
-     });
-
-     console.log('✅ Tournament stats complete. Joined:', joinedCount);
-     setJoinedTournaments(joinedCount);
-   } catch (error) {
-     console.error("❌ Error fetching tournament stats:", error);
-     setJoinedTournaments(0);
-   }
- };
-
-
-  // Single effect for user data and initialization
+  // Main data fetching effect with real-time listeners
   useEffect(() => {
     if (!user?.uid) return;
 
     let isMounted = true;
+    const unsubscribers = [];
 
-    // User document listener
-    const unsubUser = firestore()
-      .collection("users")
-      .doc(user.uid)
-      .onSnapshot(
-        (userSnapshot) => {
-          if (!isMounted) return;
+    try {
+      // User document listener
+      const unsubUser = firestore()
+        .collection("users")
+        .doc(user.uid)
+        .onSnapshot(
+          (userSnapshot) => {
+            if (!isMounted) return;
 
-          if (userSnapshot.exists) {
-            const userData = userSnapshot.data() || {};
-            setUserName(userData.inGameName || user?.displayName || user?.email || "Player");
-            setIsNewUser(!userData.hasSeenTour);
-            setWonTournaments(userData.wonTournaments || 0);
-          } else {
-            setUserName(user?.displayName || user?.email || "Player");
-            setIsNewUser(true);
-            setWonTournaments(0);
+            try {
+              if (userSnapshot.exists) {
+                const userData = userSnapshot.data() || {};
+                setUserName(userData.inGameName || user?.displayName || user?.email || "Player");
+                setIsNewUser(!userData.hasSeenTour);
+                setWonTournaments(userData.wonTournaments || 0);
+              } else {
+                setUserName(user?.displayName || user?.email || "Player");
+                setIsNewUser(true);
+                setWonTournaments(0);
+              }
+            } catch (err) {
+              console.error("Error processing user document:", err);
+              if (isMounted) {
+                setError("Failed to load user data");
+              }
+            }
+          },
+          (error) => {
+            console.error("Error listening to user document:", error);
+            if (isMounted) {
+              setError("Failed to connect to user data");
+            }
           }
-        },
-        (error) => {
-          console.error("Error listening to user document:", error);
-        }
-      );
+        );
 
-    // Fetch tournament stats once
-    fetchTournamentStats().finally(() => {
+      unsubscribers.push(unsubUser);
+
+      // Real-time tournament stats listener
+      const unsubTournaments = firestore()
+        .collection("active-tournaments")
+        .onSnapshot(
+          (snapshot) => {
+            if (!isMounted) return;
+
+            try {
+              if (!snapshot) {
+                console.log('Tournament snapshot is null');
+                setJoinedTournaments(0);
+                return;
+              }
+
+              if (!snapshot.docs || snapshot.docs.length === 0) {
+                console.log('No tournament documents found');
+                setJoinedTournaments(0);
+                if (loading) {
+                  setLoading(false);
+                  startAnimation();
+                }
+                return;
+              }
+
+              let joinedCount = 0;
+              console.log(`Processing ${snapshot.docs.length} tournaments for stats`);
+
+              snapshot.docs.forEach((doc) => {
+                try {
+                  const tournamentData = doc.data();
+
+                  if (!tournamentData) {
+                    console.log('Tournament data is null for doc:', doc.id);
+                    return;
+                  }
+
+                  const bookedSlots = tournamentData.bookedSlots;
+                  if (bookedSlots && Array.isArray(bookedSlots)) {
+                    const isJoined = bookedSlots.some(slot => slot?.uid === user.uid);
+                    if (isJoined) {
+                      joinedCount++;
+                      console.log('Found joined tournament:', doc.id);
+                    }
+                  }
+                } catch (docError) {
+                  console.log('Error processing tournament doc:', doc.id, docError);
+                }
+              });
+
+              console.log('Tournament stats complete. Joined:', joinedCount);
+              setJoinedTournaments(joinedCount);
+              
+              // Set loading false and start animation only after data is loaded
+              if (loading) {
+                setLoading(false);
+                startAnimation();
+              }
+            } catch (snapshotError) {
+              console.error("Error processing tournaments snapshot:", snapshotError);
+              if (isMounted) {
+                setError("Failed to load tournament data");
+                if (loading) {
+                  setLoading(false);
+                }
+              }
+            }
+          },
+          (error) => {
+            console.error("Error fetching tournament stats:", error);
+            if (isMounted) {
+              setError("Failed to connect to tournament data");
+              setJoinedTournaments(0);
+              if (loading) {
+                setLoading(false);
+              }
+            }
+          }
+        );
+
+      unsubscribers.push(unsubTournaments);
+
+    } catch (initError) {
+      console.error("Error initializing data listeners:", initError);
       if (isMounted) {
+        setError("Failed to initialize data connection");
         setLoading(false);
-        // Start entrance animation after data is loaded
-        Animated.timing(animatedValue, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }).start();
       }
-    });
+    }
 
     return () => {
       isMounted = false;
-      unsubUser();
+      unsubscribers.forEach(unsub => {
+        try {
+          unsub?.();
+        } catch (cleanupError) {
+          console.error("Error cleaning up listener:", cleanupError);
+        }
+      });
     };
-  }, [user]);
+  }, [user, loading, startAnimation]);
 
   // Tour logic - separate effect to avoid conflicts
   useEffect(() => {
-    if (!loading && isNewUser) {
+    if (!loading && !error && isNewUser) {
       const timer = setTimeout(() => {
         setShowTour(true);
-      }, 800);
+      }, ANIMATION.TOUR_DELAY);
       return () => clearTimeout(timer);
     }
-  }, [loading, isNewUser]);
+  }, [loading, error, isNewUser]);
 
   const handleTourComplete = async () => {
     setShowTour(false);
@@ -239,9 +355,43 @@ export default function HomeScreen({ navigation }) {
           .update({ hasSeenTour: true });
       } catch (error) {
         console.error("Error updating tour status:", error);
+        Alert.alert("Info", "Tour completed successfully!");
       }
     }
   };
+
+  // Navigation handlers with accessibility
+  const navigateToTournaments = useCallback(() => {
+    navigation.navigate(ROUTES.TOURNAMENT_CATEGORIES);
+  }, [navigation]);
+
+  const navigateToWallet = useCallback(() => {
+    navigation.navigate(ROUTES.WALLET);
+  }, [navigation]);
+
+  const navigateToLeaderboard = useCallback(() => {
+    navigation.navigate(ROUTES.LEADERBOARD);
+  }, [navigation]);
+
+  // Error screen
+  if (error && !loading) {
+    return (
+      <ScrollView 
+        style={styles.container}
+        contentContainerStyle={styles.centerContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#ff4500"
+            colors={["#ff4500"]}
+          />
+        }
+      >
+        <ErrorState onRetry={handleRetry} message={error} />
+      </ScrollView>
+    );
+  }
 
   // Loading screen with proper skeleton
   if (loading) {
@@ -267,7 +417,18 @@ export default function HomeScreen({ navigation }) {
 
   return (
     <>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.container} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#ff4500"
+            colors={["#ff4500"]}
+          />
+        }
+      >
         <View style={styles.headerSection}>
           <Text style={styles.welcomeText}>
             {isNewUser ? `Welcome, ${userName}!` : `Welcome back, ${userName}!`}
@@ -277,17 +438,15 @@ export default function HomeScreen({ navigation }) {
 
         <View style={styles.cardsContainer}>
           {/* Joined Tournaments Card */}
-          <Animated.View
-            style={{
-              transform: [{ translateY: cardTranslateY }],
-              opacity: cardOpacity,
-              marginBottom: 20,
-            }}
-          >
+          <Animated.View style={animatedCardStyle}>
             <TouchableOpacity
               style={styles.card}
-              onPress={() => navigation.navigate("TournamentCategories")}
+              onPress={navigateToTournaments}
               activeOpacity={0.9}
+              accessible={true}
+              accessibilityLabel={`Joined tournaments: ${joinedTournaments}`}
+              accessibilityHint="Tap to view all tournaments"
+              accessibilityRole="button"
             >
               <LinearGradient
                 colors={["rgba(255,69,0,0.15)", "rgba(255,140,0,0.08)"]}
@@ -320,16 +479,15 @@ export default function HomeScreen({ navigation }) {
           </Animated.View>
 
           {/* Won Tournaments Card */}
-          <Animated.View
-            style={{
-              transform: [{ translateY: cardTranslateY }],
-              opacity: cardOpacity,
-            }}
-          >
+          <Animated.View style={animatedCardStyleNoMargin}>
             <TouchableOpacity
               style={styles.card}
-              onPress={() => navigation.navigate("Leaderboard")}
+              onPress={navigateToLeaderboard}
               activeOpacity={0.9}
+              accessible={true}
+              accessibilityLabel={`Won tournaments: ${wonTournaments}`}
+              accessibilityHint="Tap to view leaderboard"
+              accessibilityRole="button"
             >
               <LinearGradient
                 colors={["rgba(0,255,136,0.15)", "rgba(0,200,108,0.08)"]}
@@ -368,7 +526,11 @@ export default function HomeScreen({ navigation }) {
           <View style={styles.quickActionsGrid}>
             <TouchableOpacity
               style={styles.quickActionButton}
-              onPress={() => navigation.navigate("TournamentCategories")}
+              onPress={navigateToTournaments}
+              accessible={true}
+              accessibilityLabel="Join tournament"
+              accessibilityHint="Tap to browse and join tournaments"
+              accessibilityRole="button"
             >
               <LinearGradient
                 colors={["rgba(255,170,0,0.2)", "rgba(255,170,0,0.1)"]}
@@ -381,7 +543,11 @@ export default function HomeScreen({ navigation }) {
 
             <TouchableOpacity
               style={styles.quickActionButton}
-              onPress={() => navigation.navigate("Wallet")}
+              onPress={navigateToWallet}
+              accessible={true}
+              accessibilityLabel="Add coins"
+              accessibilityHint="Tap to manage wallet and add coins"
+              accessibilityRole="button"
             >
               <LinearGradient
                 colors={["rgba(0,255,255,0.2)", "rgba(0,255,255,0.1)"]}
@@ -401,26 +567,150 @@ export default function HomeScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#1a1a1a" },
-  headerSection: { padding: 25, paddingBottom: 15 },
-  welcomeText: { color: "#fff", fontSize: 28, fontWeight: "bold", marginBottom: 5 },
-  subText: { color: "#aaa", fontSize: 16 },
-  cardsContainer: { paddingHorizontal: 20 },
-  card: { height: 180, borderRadius: 20, overflow: "hidden", elevation: 8, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
-  cardContent: { flex: 1, padding: 20, zIndex: 2 },
-  cardHeader: { flexDirection: "row", alignItems: "center", marginBottom: 15 },
-  iconGradient: { width: 60, height: 60, borderRadius: 30, justifyContent: "center", alignItems: "center" },
-  cardTitle: { color: "#fff", fontSize: 20, fontWeight: "bold", marginBottom: 2 },
-  cardSubtitle: { color: "#ccc", fontSize: 14 },
-  statsSection: { alignItems: "center", marginBottom: 15 },
-  mainStat: { color: "#fff", fontSize: 36, fontWeight: "bold" },
-  statLabel: { color: "#ccc", fontSize: 12, textTransform: "uppercase", letterSpacing: 1 },
-  quickActionsContainer: { padding: 20, paddingTop: 10 },
-  sectionTitle: { color: "#fff", fontSize: 20, fontWeight: "bold", marginBottom: 15 },
-  quickActionsGrid: { flexDirection: "row", justifyContent: "space-between" },
-  quickActionButton: { flex: 1, marginHorizontal: 5, borderRadius: 12, overflow: "hidden" },
-  quickActionGradient: { padding: 20, alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
-  quickActionText: { color: "#fff", fontSize: 14, fontWeight: "600", marginTop: 8 },
+  container: { 
+    flex: 1, 
+    backgroundColor: "#1a1a1a" 
+  },
+  centerContent: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  headerSection: { 
+    padding: 25, 
+    paddingBottom: 15 
+  },
+  welcomeText: { 
+    color: "#fff", 
+    fontSize: 28, 
+    fontWeight: "bold", 
+    marginBottom: 5 
+  },
+  subText: { 
+    color: "#aaa", 
+    fontSize: 16 
+  },
+  cardsContainer: { 
+    paddingHorizontal: 20 
+  },
+  card: { 
+    height: 180, 
+    borderRadius: 20, 
+    overflow: "hidden", 
+    elevation: 8, 
+    shadowColor: "#000", 
+    shadowOffset: { width: 0, height: 4 }, 
+    shadowOpacity: 0.3, 
+    shadowRadius: 8 
+  },
+  cardContent: { 
+    flex: 1, 
+    padding: 20, 
+    zIndex: 2 
+  },
+  cardHeader: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    marginBottom: 15 
+  },
+  iconGradient: { 
+    width: 60, 
+    height: 60, 
+    borderRadius: 30, 
+    justifyContent: "center", 
+    alignItems: "center" 
+  },
+  cardTitle: { 
+    color: "#fff", 
+    fontSize: 20, 
+    fontWeight: "bold", 
+    marginBottom: 2 
+  },
+  cardSubtitle: { 
+    color: "#ccc", 
+    fontSize: 14 
+  },
+  statsSection: { 
+    alignItems: "center", 
+    marginBottom: 15 
+  },
+  mainStat: { 
+    color: "#fff", 
+    fontSize: 36, 
+    fontWeight: "bold" 
+  },
+  statLabel: { 
+    color: "#ccc", 
+    fontSize: 12, 
+    textTransform: "uppercase", 
+    letterSpacing: 1 
+  },
+  quickActionsContainer: { 
+    padding: 20, 
+    paddingTop: 10 
+  },
+  sectionTitle: { 
+    color: "#fff", 
+    fontSize: 20, 
+    fontWeight: "bold", 
+    marginBottom: 15 
+  },
+  quickActionsGrid: { 
+    flexDirection: "row", 
+    justifyContent: "space-between" 
+  },
+  quickActionButton: { 
+    flex: 1, 
+    marginHorizontal: 5, 
+    borderRadius: 12, 
+    overflow: "hidden" 
+  },
+  quickActionGradient: { 
+    padding: 20, 
+    alignItems: "center", 
+    borderRadius: 12, 
+    borderWidth: 1, 
+    borderColor: "rgba(255,255,255,0.1)" 
+  },
+  quickActionText: { 
+    color: "#fff", 
+    fontSize: 14, 
+    fontWeight: "600", 
+    marginTop: 8 
+  },
+
+  // Error State Styles
+  errorContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 40,
+  },
+  errorTitle: {
+    color: "#fff",
+    fontSize: 24,
+    fontWeight: "bold",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  errorText: {
+    color: "#aaa",
+    fontSize: 16,
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: "#ff4500",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    elevation: 2,
+  },
+  retryText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
 
   // Professional Skeleton Styles
   skeletonCardContainer: {

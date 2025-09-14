@@ -88,6 +88,7 @@ const ErrorFallback = ({ error, resetError }) => (
   </View>
 );
 
+// ✅ UPDATED CustomHeader Function
 function CustomHeader({ navigation }) {
   const insets = useSafeAreaInsets();
   const { user, coins } = useContext(AuthContext);
@@ -96,11 +97,35 @@ function CustomHeader({ navigation }) {
   useEffect(() => {
     if (!user?.uid) return;
 
+    let lastReadTime = 0;
+
+    // First, get user's last read timestamp
+    const getUserLastRead = async () => {
+      try {
+        const userDoc = await firestore()
+          .collection('users')
+          .doc(user.uid)
+          .get();
+        
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          lastReadTime = userData.lastUpdatesRead?.toDate?.()?.getTime() || 0;
+          console.log("📖 User last read updates at:", new Date(lastReadTime));
+        }
+      } catch (error) {
+        console.error("❌ Error getting user last read:", error);
+      }
+    };
+
+    // Listen to tournaments for updates
     const unsubUpdates = firestore()
       .collection("active-tournaments")
       .onSnapshot(
-        (snapshot) => {
+        async (snapshot) => {
           try {
+            // Get user's last read time first
+            await getUserLastRead();
+
             if (!snapshot || !snapshot.docs) {
               console.log("❌ Invalid snapshot or docs");
               setHasUnreadUpdates(false);
@@ -116,15 +141,14 @@ function CustomHeader({ navigation }) {
             }
 
             console.log(
-              `🔍 Checking ${validDocs.length} tournaments for updates`
+              `🔍 Checking ${validDocs.length} tournaments for NEW updates`
             );
 
-            const unread = validDocs.some((doc) => {
+            const hasNewUpdates = validDocs.some((doc) => {
               try {
                 const data = doc.data();
 
                 if (!data) {
-                  console.log("⚠️ Empty document data:", doc.id);
                   return false;
                 }
 
@@ -137,21 +161,18 @@ function CustomHeader({ navigation }) {
                   return false;
                 }
 
-                // Check if there are actual updates (same as UpdatesScreen)
+                // Check if there are actual updates
                 if (!data.roomId && !data.pass) {
                   return false;
                 }
 
-                // ✅ ADD TIME FILTER (same as UpdatesScreen)
+                // Check if update is within 1 hour (same time filter as UpdatesScreen)
                 const oneHourAgo = Date.now() - 60 * 60 * 1000;
                 let updateTime = 0;
 
                 try {
                   if (typeof data.updatedAt === "string") {
-                    const cleanDateString = data.updatedAt.replace(
-                      " UTC+5",
-                      ""
-                    );
+                    const cleanDateString = data.updatedAt.replace(" UTC+5", "");
                     const parsedDate = new Date(cleanDateString);
                     if (!isNaN(parsedDate)) {
                       updateTime = parsedDate.getTime();
@@ -160,32 +181,35 @@ function CustomHeader({ navigation }) {
                     updateTime = data.updatedAt.toDate().getTime();
                   }
                 } catch (error) {
-                  console.error(
-                    "Error parsing timestamp for tournament",
-                    doc.id,
-                    error
-                  );
+                  console.error("Error parsing timestamp:", error);
                   return false;
                 }
 
-                // Only show updates from the last 1 hour (same as UpdatesScreen)
+                // Only consider updates from the last 1 hour
                 if (updateTime <= oneHourAgo) {
                   return false;
                 }
 
-                const lastRead =
-                  data.lastReadUpdates?.toDate?.()?.getTime() || 0;
-                return updateTime > lastRead;
-
+                // ✅ KEY LOGIC: Compare update time with user's last read time
+                const isNewerThanLastRead = updateTime > lastReadTime;
                 
+                console.log(`🔔 Tournament ${doc.id}:`, {
+                  updateTime: new Date(updateTime),
+                  lastReadTime: new Date(lastReadTime),
+                  isNewer: isNewerThanLastRead
+                });
+
+                return isNewerThanLastRead;
+
               } catch (docError) {
                 console.error("❌ Error processing doc:", doc.id, docError);
                 return false;
               }
             });
 
-            console.log("✅ Updates check complete. Has unread:", unread);
-            setHasUnreadUpdates(unread);
+            console.log("✅ Has NEW unread updates:", hasNewUpdates);
+            setHasUnreadUpdates(hasNewUpdates);
+
           } catch (snapshotError) {
             console.error("❌ Error processing snapshot:", snapshotError);
             setHasUnreadUpdates(false);
@@ -197,11 +221,25 @@ function CustomHeader({ navigation }) {
         }
       );
 
+    // Also listen to user document changes (when lastUpdatesRead is updated)
+    const unsubUser = firestore()
+      .collection('users')
+      .doc(user.uid)
+      .onSnapshot((doc) => {
+        if (doc.exists) {
+          const userData = doc.data();
+          const newLastRead = userData.lastUpdatesRead?.toDate?.()?.getTime() || 0;
+          if (newLastRead !== lastReadTime) {
+            lastReadTime = newLastRead;
+            console.log("📖 User read timestamp updated:", new Date(lastReadTime));
+          }
+        }
+      });
+
     return () => {
-      console.log("🧹 Cleaning up updates listener");
-      if (unsubUpdates) {
-        unsubUpdates();
-      }
+      console.log("🧹 Cleaning up notification listeners");
+      if (unsubUpdates) unsubUpdates();
+      if (unsubUser) unsubUser();
     };
   }, [user]);
 
@@ -249,6 +287,7 @@ function CustomHeader({ navigation }) {
     </View>
   );
 }
+
 
 // ✅ NEW - Floating WhatsApp Button Component
 function FloatingWhatsAppButton() {
